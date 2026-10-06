@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/main"
+    android:id="@+id/collection"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- 홈 화면 영역 -->
+    <!-- 도감 화면 영역 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -16,19 +17,18 @@
         android:padding="24dp">
 
         <TextView
-            android:id="@+id/distanceText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="40dp"
-            android:text="0.00km"
-            android:textSize="36sp" />
+            android:text="도감"
+            android:textSize="32sp"
+            android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/startButton"
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="40dp"
-            android:text="러닝 시작" />
+            android:layout_marginTop="20dp"
+            android:text="도감 화면입니다."
+            android:textSize="18sp" />
 
     </LinearLayout>
 
@@ -64,7 +64,8 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="👤&#10;마이" />
+            android:text="👤&#10;My" />
 
     </LinearLayout>
+
 </LinearLayout>

@@ -1,73 +1,59 @@
 package com.cookandroid.runcatch;
 
-import android.Manifest;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.Button;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-public class MainActivity extends AppCompatActivity {
+public class CollectionActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_collection);
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.collection), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
 
-        //러닝 시작 버튼
-        Button startButton = findViewById(R.id.startButton);
-
-        startButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, RunningActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 하단 홈 버튼
+        // 홈
         Button homeNavButton = findViewById(R.id.homeNavButton);
 
         homeNavButton.setOnClickListener(v -> {
-            // 현재 이미 홈 화면이므로 아무것도 하지 않음
+            Intent intent = new Intent(CollectionActivity.this, MainActivity.class);
+            startActivity(intent);
+            finish();
         });
 
-        // 하단 기록 버튼
+        // 기록
         Button recordNavButton = findViewById(R.id.recordNavButton);
 
         recordNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, RecordActivity.class);
+            Intent intent = new Intent(CollectionActivity.this, RecordActivity.class);
             startActivity(intent);
             finish();
         });
 
-        // 하단 도감 버튼
+        // 도감
         Button collectionNavButton = findViewById(R.id.collectionNavButton);
 
         collectionNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, CollectionActivity.class);
-            startActivity(intent);
-            finish();
+            // 현재 이미 도감 화면이므로 아무것도 하지 않음
         });
 
-        // 하단 My 버튼
+        // My
         Button myNavButton = findViewById(R.id.myNavButton);
 
         myNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, MyActivity.class);
+            Intent intent = new Intent(CollectionActivity.this, MyActivity.class);
             startActivity(intent);
             finish();
         });
