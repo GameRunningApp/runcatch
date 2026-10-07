@@ -14,62 +14,14 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends BaseActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_main);
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
-
-        //러닝 시작 버튼
-        Button startButton = findViewById(R.id.startButton);
-
-        startButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, RunningActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 하단 홈 버튼
-        Button homeNavButton = findViewById(R.id.homeNavButton);
-
-        homeNavButton.setOnClickListener(v -> {
-            // 현재 이미 홈 화면이므로 아무것도 하지 않음
-        });
-
-        // 하단 기록 버튼
-        Button recordNavButton = findViewById(R.id.recordNavButton);
-
-        recordNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, RecordActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 하단 도감 버튼
-        Button collectionNavButton = findViewById(R.id.collectionNavButton);
-
-        collectionNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, CollectionActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 하단 My 버튼
-        Button myNavButton = findViewById(R.id.myNavButton);
-
-        myNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, MyActivity.class);
-            startActivity(intent);
-            finish();
-        });
+        // Edge-to-Edge + 레이아웃 + 인셋 처리
+        setContentViewEdgeToEdge(R.layout.activity_main, R.id.main);
+        // 하단 내비게이션 (현재 화면 = 도감)
+        setupBottomNav(R.id.homeNavButton);
     }
 }

@@ -10,52 +10,13 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-public class CollectionActivity extends AppCompatActivity {
-
+public class CollectionActivity extends BaseActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_collection);
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.collection), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
-
-        // 홈
-        Button homeNavButton = findViewById(R.id.homeNavButton);
-
-        homeNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(CollectionActivity.this, MainActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 기록
-        Button recordNavButton = findViewById(R.id.recordNavButton);
-
-        recordNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(CollectionActivity.this, RecordActivity.class);
-            startActivity(intent);
-            finish();
-        });
-
-        // 도감
-        Button collectionNavButton = findViewById(R.id.collectionNavButton);
-
-        collectionNavButton.setOnClickListener(v -> {
-            // 현재 이미 도감 화면이므로 아무것도 하지 않음
-        });
-
-        // My
-        Button myNavButton = findViewById(R.id.myNavButton);
-
-        myNavButton.setOnClickListener(v -> {
-            Intent intent = new Intent(CollectionActivity.this, MyActivity.class);
-            startActivity(intent);
-            finish();
-        });
+        // Edge-to-Edge + 레이아웃 + 인셋 처리
+        setContentViewEdgeToEdge(R.layout.activity_collection, R.id.collection);
+        // 하단 내비게이션 (현재 화면 = 도감)
+        setupBottomNav(R.id.collectionNavButton);
     }
 }

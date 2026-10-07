@@ -29,43 +29,8 @@
             android:layout_marginTop="20dp"
             android:text="도감 화면입니다."
             android:textSize="18sp" />
-
     </LinearLayout>
 
     <!-- 하단 네비게이션 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="70dp"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/homeNavButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="🏠&#10;홈" />
-
-        <Button
-            android:id="@+id/recordNavButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="🏃&#10;기록" />
-
-        <Button
-            android:id="@+id/collectionNavButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="🐰&#10;도감" />
-
-        <Button
-            android:id="@+id/myNavButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="👤&#10;My" />
-
-    </LinearLayout>
-
+    <include layout="@layout/bottom_nav"/>
 </LinearLayout>
