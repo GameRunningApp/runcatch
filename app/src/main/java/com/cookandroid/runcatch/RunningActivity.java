@@ -162,7 +162,10 @@ public class RunningActivity extends AppCompatActivity {
         //Gps 위치 측정 종료
         fusedLocationProviderClient.removeLocationUpdates(locationCallback);
         //결과 화면으로 이동
-        Intent intent = new Intent(RunningActivity.this, ResultActivity.class);
+        //2km 등 조건을 달성하면 캐릭터 획득 화면, 아니면 바로 결과 화면으로
+        Class<?> next = CharacterRewardActivity.isRewardEligible(totalDistance / 1000)
+                ? CharacterRewardActivity.class : ResultActivity.class;
+        Intent intent = new Intent(RunningActivity.this, next);
 
         //이동한 거리 전달
         intent.putExtra("distance", totalDistance / 1000);
