@@ -12,4 +12,5 @@
     <color name="nav_inactive">#FF9AA4B2</color>
     <color name="card_stroke">#FFD9E2F0</color>
     <color name="progress_track">#FFE2E8E5</color>
+    <color name="locked_background">#FFF1F4F9</color>
 </resources>
