@@ -15,9 +15,10 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import com.cookandroid.runcatch.backend.RunCatchDbHelper;
 
 public class CollectionActivity extends BaseActivity {
 
@@ -32,12 +33,17 @@ public class CollectionActivity extends BaseActivity {
         applySystemBarInsets();
         setupBottomNav(R.id.collectionNavButton);
 
-        double totalDistanceKm = 15.1;
-        List<RunCharacter> characters = createCharacters();
+        RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
+        String userId = RunCatchDbHelper.CURRENT_USER_ID;
 
-        bindSummary(characters, totalDistanceKm);
-        bindNextCharacter(characters, totalDistanceKm);
-        bindCharacterGrid(characters, totalDistanceKm);
+        double totalDistanceKm = db.getTotalDistance(userId) / 1000.0;
+        // 잠금 해제 여부는 누적 거리가 아니라 획득한 캐릭터(user_character) 기준
+        Set<Integer> ownedIds = db.getOwnedCharacterIds(userId);
+        List<RunCharacter> characters = RunCharacter.ALL;
+
+        bindSummary(characters, ownedIds, totalDistanceKm);
+        bindNextCharacter(characters, ownedIds, totalDistanceKm);
+        bindCharacterGrid(characters, ownedIds);
     }
 
     private void applySystemBarInsets() {
@@ -56,49 +62,32 @@ public class CollectionActivity extends BaseActivity {
         });
     }
 
-    private List<RunCharacter> createCharacters() {
-        List<RunCharacter> characters = new ArrayList<>();
-        characters.add(new RunCharacter("🐥", "삐약이", 2, "처음 만나는 러닝 동료"));
-        characters.add(new RunCharacter("🐰", "토끼", 5, "가볍게 뛰는 걸 좋아하는 친구"));
-        characters.add(new RunCharacter("🐿️", "다람쥐", 10, "작지만 꾸준한 러너"));
-        characters.add(new RunCharacter("🦊", "여우", 15, "페이스 조절의 달인"));
-        characters.add(new RunCharacter("🐶", "강아지", 20, "언제나 함께 달려주는 친구"));
-        characters.add(new RunCharacter("🐱", "고양이", 30, "밤 러닝을 즐기는 러너"));
-        characters.add(new RunCharacter("🐼", "판다", 42.195, "풀코스 거리를 달성한 러너"));
-        characters.add(new RunCharacter("🐧", "펭귄", 50, "추위에도 멈추지 않는 러너"));
-        characters.add(new RunCharacter("🐨", "코알라", 70, "느긋하지만 끝까지 달리는 친구"));
-        characters.add(new RunCharacter("🦁", "사자", 100, "100Km를 정복한 러닝의 왕"));
-        characters.add(new RunCharacter("🐯", "호랑이", 150, "누구보다 빠른 질주 본능"));
-        characters.add(new RunCharacter("🦄", "유니콘", 200, "전설로 남은 러너"));
-        return characters;
-    }
-
-    private int countUnlocked(List<RunCharacter> characters, double totalDistanceKm) {
+    private int countUnlocked(List<RunCharacter> characters, Set<Integer> ownedIds) {
         int count = 0;
         for (RunCharacter character : characters) {
-            if (character.isUnlocked(totalDistanceKm)) {
+            if (ownedIds.contains(character.id)) {
                 count++;
             }
         }
         return count;
     }
 
-    private void bindSummary(List<RunCharacter> characters, double totalDistanceKm) {
+    private void bindSummary(List<RunCharacter> characters, Set<Integer> ownedIds,
+                             double totalDistanceKm) {
         TextView collectedCountText = findViewById(R.id.collectedCountText);
-        TextView collectedCountBadge = findViewById(R.id.collectedCountBadge);
         ProgressBar collectionProgress = findViewById(R.id.collectionProgress);
         TextView totalDistanceText = findViewById(R.id.totalDistanceText);
 
-        int unlocked = countUnlocked(characters, totalDistanceKm);
+        int unlocked = countUnlocked(characters, ownedIds);
         int total = characters.size();
 
         collectedCountText.setText(unlocked + " / " + total);
-        collectedCountBadge.setText(unlocked + " / " + total);
         collectionProgress.setProgress(total > 0 ? Math.round(unlocked * 100f / total) : 0);
         totalDistanceText.setText(String.format(Locale.US, "누적 거리 %.1f Km", totalDistanceKm));
     }
 
-    private void bindNextCharacter(List<RunCharacter> characters, double totalDistanceKm) {
+    private void bindNextCharacter(List<RunCharacter> characters, Set<Integer> ownedIds,
+                                   double totalDistanceKm) {
         TextView nextCharacterEmoji = findViewById(R.id.nextCharacterEmoji);
         TextView nextCharacterName = findViewById(R.id.nextCharacterName);
         TextView nextCharacterText = findViewById(R.id.nextCharacterText);
@@ -106,7 +95,7 @@ public class CollectionActivity extends BaseActivity {
 
         RunCharacter next = null;
         for (RunCharacter character : characters) {
-            if (!character.isUnlocked(totalDistanceKm)) {
+            if (!ownedIds.contains(character.id)) {
                 next = character;
                 break;
             }
@@ -119,11 +108,17 @@ public class CollectionActivity extends BaseActivity {
 
         nextCharacterEmoji.setText("🔒");
         nextCharacterName.setText("다음 캐릭터");
-        nextCharacterText.setText(String.format(Locale.US, "%.1f Km 더 달리면 만날 수 있어요",
-                next.requiredKm - totalDistanceKm));
+        // 획득은 서버가 판단하므로, 누적 거리가 기준을 넘었는데 아직 못 받은 경우도 있음
+        double remainingKm = next.requiredKm - totalDistanceKm;
+        if (remainingKm > 0) {
+            nextCharacterText.setText(String.format(Locale.US, "%.1f Km 더 달리면 만날 수 있어요",
+                    remainingKm));
+        } else {
+            nextCharacterText.setText("곧 만날 수 있어요");
+        }
     }
 
-    private void bindCharacterGrid(List<RunCharacter> characters, double totalDistanceKm) {
+    private void bindCharacterGrid(List<RunCharacter> characters, Set<Integer> ownedIds) {
         GridLayout characterGrid = findViewById(R.id.characterGrid);
         characterGrid.removeAllViews();
         characterGrid.setColumnCount(COLUMN_COUNT);
@@ -133,7 +128,7 @@ public class CollectionActivity extends BaseActivity {
 
         for (int i = 0; i < characters.size(); i++) {
             RunCharacter character = characters.get(i);
-            boolean unlocked = character.isUnlocked(totalDistanceKm);
+            boolean unlocked = ownedIds.contains(character.id);
 
             View item = inflater.inflate(R.layout.item_collection_character, characterGrid, false);
             bindCharacterItem(item, character, unlocked);

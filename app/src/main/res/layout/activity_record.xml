@@ -7,30 +7,29 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- 기록 화면 영역 -->
-    <LinearLayout
+    <!-- 기록 화면 영역 (임시: DB 테이블 확인용) -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="24dp">
+        android:layout_weight="1">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/tableContainer"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="기록"
-            android:textSize="32sp"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="기록 페이지입니다."
-            android:textSize="18sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="기록"
+                android:textSize="32sp"
+                android:textStyle="bold" />
 
-    </LinearLayout>
+        </LinearLayout>
+
+    </ScrollView>
 
     <!-- 하단 네비게이션 -->
     <include layout="@layout/bottom_nav"/>
