@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="match_parent"
+    android:layout_weight="1"
+    android:gravity="center_horizontal|bottom"
+    android:orientation="vertical">
+
+    <View
+        android:id="@+id/weekBar"
+        android:layout_width="14dp"
+        android:layout_height="4dp"
+        android:background="@drawable/bg_week_bar_empty" />
+
+    <TextView
+        android:id="@+id/weekDayText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:includeFontPadding="false"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+</LinearLayout>
