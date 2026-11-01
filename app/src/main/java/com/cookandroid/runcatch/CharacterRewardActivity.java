@@ -6,24 +6,19 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.util.List;
+
 /**
  * 05_1 캐릭터 획득 창.
- * 러닝 측정 화면에서 "종료"를 눌렀을 때, 획득 조건을 달성한 경우에만 보여준다.
- * "다음"을 누르면 상세 러닝 결과 화면으로 넘어간다.
+ * 러닝 측정 화면에서 "종료"를 눌렀을 때, 서버가 캐릭터를 획득했다고 알려준 경우에만 보여준다.
+ * 여러 캐릭터를 획득하면 "다음"을 누를 때마다 같은 화면에서 캐릭터 정보만 바뀌고,
+ * 마지막 캐릭터에서 "다음"을 누르면 상세 러닝 결과 화면으로 넘어간다.
  *
- * 흐름: RunningActivity(종료)
- *         → [조건 달성] CharacterRewardActivity → "다음" → ResultActivity(상세 결과)
- *         → [조건 미달] ResultActivity(상세 결과)
+ * 흐름: RunningActivity(종료) → RewardServer(획득 여부 판단)
+ *         → [획득] CharacterRewardActivity → "다음" × 획득 수 → ResultActivity(상세 결과)
+ *         → [미획득] ResultActivity(상세 결과)
  */
 public class CharacterRewardActivity extends BaseActivity {
-
-    // ===== 획득 조건 (아직 확정 전) ====
-    public static final float REWARD_DISTANCE_KM = 2.0f;
-
-    /** 이 거리(km)로 캐릭터를 받을 수 있는지 판단. RunningActivity에서 화면 분기할 때 사용. */
-    public static boolean isRewardEligible(float distanceKm) {
-        return distanceKm >= REWARD_DISTANCE_KM;
-    }
 
     // ===== Intent로 주고받는 값 =====
     // distance, elapsedTime 은 RunningActivity → ResultActivity 가 쓰는 키와 똑같이 맞춤.
@@ -31,36 +26,88 @@ public class CharacterRewardActivity extends BaseActivity {
     public static final String EXTRA_DISTANCE = "distance";          // float, km
     public static final String EXTRA_ELAPSED_TIME = "elapsedTime";   // long, ms
 
-    // 획득한 캐릭터 정보 (백엔드에서 내려주면 이 키로 넘겨받는다. 없으면 아래 기본값 사용)
-    public static final String EXTRA_CHARACTER_NAME = "characterName";
-    public static final String EXTRA_CHARACTER_EMOJI = "characterEmoji";
-    public static final String EXTRA_CONDITION_TEXT = "conditionText";
-    public static final String EXTRA_DESCRIPTION = "characterDescription";
+    // 획득한 캐릭터 정보. 여러 개일 수 있어서 같은 순서의 String 배열로 주고받는다 (putRewards 사용)
+    public static final String EXTRA_CHARACTER_NAMES = "characterNames";
+    public static final String EXTRA_CHARACTER_EMOJIS = "characterEmojis";
+    public static final String EXTRA_CONDITION_TEXTS = "conditionTexts";
+    public static final String EXTRA_DESCRIPTIONS = "characterDescriptions";
+
+    private TextView tvCharacterEmoji;
+    private TextView tvCharacterName;
+    private TextView tvCondition;
+    private TextView tvDescription;
+
+    private String[] emojis;
+    private String[] names;
+    private String[] conditions;
+    private String[] descriptions;
+    private int currentIndex = 0;
+
+    /** 서버에서 받은 획득 캐릭터 목록을 Intent에 담는다. RunningActivity에서 사용. */
+    public static void putRewards(Intent intent, List<RewardServer.Reward> rewards) {
+        int size = rewards.size();
+        String[] emojis = new String[size];
+        String[] names = new String[size];
+        String[] conditions = new String[size];
+        String[] descriptions = new String[size];
+
+        for (int i = 0; i < size; i++) {
+            RewardServer.Reward reward = rewards.get(i);
+            emojis[i] = reward.character.emoji;
+            names[i] = reward.character.name;
+            conditions[i] = reward.conditionText;
+            descriptions[i] = reward.character.description;
+        }
+
+        intent.putExtra(EXTRA_CHARACTER_EMOJIS, emojis);
+        intent.putExtra(EXTRA_CHARACTER_NAMES, names);
+        intent.putExtra(EXTRA_CONDITION_TEXTS, conditions);
+        intent.putExtra(EXTRA_DESCRIPTIONS, descriptions);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentViewEdgeToEdge(R.layout.activity_character_reward, R.id.characterReward);
 
-        TextView tvCharacterEmoji = findViewById(R.id.tvCharacterEmoji);
-        TextView tvCharacterName = findViewById(R.id.tvCharacterName);
-        TextView tvCondition = findViewById(R.id.tvCondition);
-        TextView tvDescription = findViewById(R.id.tvDescription);
+        tvCharacterEmoji = findViewById(R.id.tvCharacterEmoji);
+        tvCharacterName = findViewById(R.id.tvCharacterName);
+        tvCondition = findViewById(R.id.tvCondition);
+        tvDescription = findViewById(R.id.tvDescription);
         Button btnNext = findViewById(R.id.btnNext);
 
-        // TODO(백엔드): 이번 러닝으로 획득한 캐릭터 정보(이름, 이미지, 조건, 설명)를 서버에서 받아서
-        //               아래 EXTRA_* 키로 이 화면에 넘겨주면 된다. 지금은 기본값(삐약이)으로 표시한다.
         Intent in = getIntent();
-        tvCharacterEmoji.setText(valueOrDefault(in.getStringExtra(EXTRA_CHARACTER_EMOJI), "🐥"));
-        tvCharacterName.setText(valueOrDefault(in.getStringExtra(EXTRA_CHARACTER_NAME), "삐약이"));
-        tvCondition.setText(valueOrDefault(in.getStringExtra(EXTRA_CONDITION_TEXT),
-                "획득 조건 : 2Km 이상 러닝 완료"));
-        tvDescription.setText(valueOrDefault(in.getStringExtra(EXTRA_DESCRIPTION),
-                "처음 만나는 러닝 동료"));
+        emojis = in.getStringArrayExtra(EXTRA_CHARACTER_EMOJIS);
+        names = in.getStringArrayExtra(EXTRA_CHARACTER_NAMES);
+        conditions = in.getStringArrayExtra(EXTRA_CONDITION_TEXTS);
+        descriptions = in.getStringArrayExtra(EXTRA_DESCRIPTIONS);
+
+        // 받은 캐릭터가 없으면 보여줄 게 없으므로 바로 결과 화면으로
+        if (emojis == null || emojis.length == 0) {
+            goToResult();
+            return;
+        }
+
+        showCharacter(0);
+
+        btnNext.setOnClickListener(v -> {
+            if (currentIndex + 1 < emojis.length) {
+                showCharacter(currentIndex + 1);
+            } else {
+                goToResult();
+            }
+        });
+    }
+
+    /** index번째 획득 캐릭터로 화면 내용 교체 */
+    private void showCharacter(int index) {
+        currentIndex = index;
+        tvCharacterEmoji.setText(emojis[index]);
+        tvCharacterName.setText(names[index]);
+        tvCondition.setText(conditions[index]);
+        tvDescription.setText(descriptions[index]);
 
         playPopInAnimation(tvCharacterEmoji);
-
-        btnNext.setOnClickListener(v -> goToResult());
     }
 
     /** 캐릭터가 통통 튀면서 나타나는 연출 */
@@ -83,9 +130,5 @@ public class CharacterRewardActivity extends BaseActivity {
         intent.putExtra(EXTRA_ELAPSED_TIME, getIntent().getLongExtra(EXTRA_ELAPSED_TIME, 0L));
         startActivity(intent);
         finish();
-    }
-
-    private static String valueOrDefault(String value, String fallback) {
-        return (value == null || value.isEmpty()) ? fallback : value;
     }
 }

@@ -10,9 +10,24 @@ import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import com.cookandroid.runcatch.backend.RunCatchDbHelper;
+import com.cookandroid.runcatch.backend.RunRecord;
+
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends BaseActivity {
+
+    // 레벨 1개당 기준 거리
+    private static final int LEVEL_DISTANCE_KM = 5;
+
+    private static final int[] RECENT_RUN_ITEM_IDS = {
+            R.id.recentRun1, R.id.recentRun2, R.id.recentRun3};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,23 +39,6 @@ public class MainActivity extends BaseActivity {
         // 하단 내비게이션
         setupBottomNav(R.id.homeNavButton);
 
-        // 프로필 및 캐릭터 정보
-        bindProfile("○○", "🐰", "토끼", 15.1);
-
-        // 다음 캐릭터 획득 진행도
-        bindNextCharacter(7.4, 10);
-
-        // 최근 러닝 기록
-        bindRecentRun(
-                R.id.recentRun1, 3.2, "00 : 24 : 18", "26/9/23");
-        bindRecentRun(
-                R.id.recentRun2, 4.1, "00 : 27 : 42", "26/9/22");
-        bindRecentRun(
-                R.id.recentRun3, 5.1, "00 : 35 : 05", "26/9/21");
-
-        // 주간 러닝 통계
-        bindWeeklySummary(12.4, 3);
-
         // 러닝 시작 버튼
         Button startButton = findViewById(R.id.startButton);
 
@@ -51,10 +49,49 @@ public class MainActivity extends BaseActivity {
         });
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 러닝을 마치고 돌아왔을 때도 최신 기록이 보이도록 onResume에서 DB 조회
+        bindFromDb();
+    }
+
+    private void bindFromDb() {
+        RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
+        String userId = RunCatchDbHelper.CURRENT_USER_ID;
+
+        double totalDistanceKm = db.getTotalDistance(userId) / 1000.0;
+
+        // 프로필 및 대표 캐릭터 정보
+        bindProfile(userId,
+                RunCharacter.findById(db.getCharacterId(userId)),
+                totalDistanceKm);
+
+        // 다음 레벨 진행도
+        bindNextLevel(totalDistanceKm);
+
+        // 최근 러닝 기록
+        List<RunRecord> recentRuns =
+                db.getRecentRuns(userId, RECENT_RUN_ITEM_IDS.length);
+        for (int i = 0; i < RECENT_RUN_ITEM_IDS.length; i++) {
+            View item = findViewById(RECENT_RUN_ITEM_IDS[i]);
+            if (i < recentRuns.size()) {
+                item.setVisibility(View.VISIBLE);
+                bindRecentRun(item, recentRuns.get(i));
+            } else {
+                item.setVisibility(View.GONE);
+            }
+        }
+
+        // 주간 러닝 통계
+        bindWeeklySummary(
+                db.getDistanceSince(userId, startOfWeek()) / 1000.0,
+                countStreakDays(db.getRunDates(userId)));
+    }
+
     private void bindProfile(
             String userName,
-            String characterEmoji,
-            String characterName,
+            RunCharacter character,
             double totalDistanceKm) {
 
         TextView greetingText = findViewById(R.id.greetingText);
@@ -65,37 +102,38 @@ public class MainActivity extends BaseActivity {
         TextView distanceText = findViewById(R.id.distanceText);
 
         greetingText.setText("안녕하세요, " + userName + "님!");
-        characterImageText.setText(characterEmoji);
-        characterNameText.setText(characterName);
+        if (character != null) {
+            characterImageText.setText(character.emoji);
+            characterNameText.setText(character.name);
+        } else {
+            characterImageText.setText("❔");
+            characterNameText.setText("대표 캐릭터 없음");
+        }
         distanceText.setText(
                 String.format(Locale.US, "%.1f Km", totalDistanceKm));
     }
 
-    private void bindNextCharacter(double currentKm, int goalKm) {
-        ProgressBar nextCharacterProgress =
-                findViewById(R.id.nextCharacterProgress);
-        TextView nextCharacterText =
-                findViewById(R.id.nextCharacterText);
+    /** 누적 거리와 다음 레벨 기준 거리 표시 (레벨마다 LEVEL_DISTANCE_KM) */
+    private void bindNextLevel(double totalDistanceKm) {
+        ProgressBar nextLevelProgress =
+                findViewById(R.id.nextLevelProgress);
+        TextView nextLevelText =
+                findViewById(R.id.nextLevelText);
 
-        int percent = goalKm > 0
-                ? (int) Math.min(
-                100, Math.round(currentKm / goalKm * 100))
-                : 0;
+        int nextLevelKm =
+                ((int) (totalDistanceKm / LEVEL_DISTANCE_KM) + 1) * LEVEL_DISTANCE_KM;
+        double levelStartKm = nextLevelKm - LEVEL_DISTANCE_KM;
 
-        nextCharacterProgress.setProgress(percent);
-        nextCharacterText.setText(
+        int percent = (int) Math.round(
+                (totalDistanceKm - levelStartKm) / LEVEL_DISTANCE_KM * 100);
+
+        nextLevelProgress.setProgress(percent);
+        nextLevelText.setText(
                 String.format(
-                        Locale.US, "%.1f / %d Km", currentKm, goalKm));
+                        Locale.US, "%.1f / %d Km", totalDistanceKm, nextLevelKm));
     }
 
-    private void bindRecentRun(
-            int itemId,
-            double distanceKm,
-            String time,
-            String date) {
-
-        View item = findViewById(itemId);
-
+    private void bindRecentRun(View item, RunRecord run) {
         TextView runDistanceText =
                 item.findViewById(R.id.runDistanceText);
         TextView runTimeText =
@@ -103,7 +141,7 @@ public class MainActivity extends BaseActivity {
         TextView runDateText =
                 item.findViewById(R.id.runDateText);
 
-        String number = String.format(Locale.US, "%.1f", distanceKm);
+        String number = String.format(Locale.US, "%.1f", run.distance / 1000f);
         SpannableString distance =
                 new SpannableString(number + " Km");
 
@@ -112,6 +150,12 @@ public class MainActivity extends BaseActivity {
                 number.length(),
                 distance.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        long totalSeconds = (long) run.duration;
+        String time = String.format(Locale.US, "%02d : %02d : %02d",
+                totalSeconds / 3600, (totalSeconds % 3600) / 60, totalSeconds % 60);
+        String date = new SimpleDateFormat("yy/M/d", Locale.US)
+                .format(new Date(run.runDate));
 
         runDistanceText.setText(distance);
         runTimeText.setText(time);
@@ -128,5 +172,58 @@ public class MainActivity extends BaseActivity {
         weeklyDistanceText.setText(
                 String.format(Locale.US, "%.1f km", weeklyDistanceKm));
         streakText.setText("🔥 연속 러닝 " + streakDays + "일째");
+    }
+
+    /** 이번 주 월요일 0시 (epoch ms) */
+    private static long startOfWeek() {
+        Calendar cal = Calendar.getInstance();
+        cal.setFirstDayOfWeek(Calendar.MONDAY);
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
+        return cal.getTimeInMillis();
+    }
+
+    /**
+     * 연속 러닝 일수. 오늘 뛰었으면 오늘부터, 아직 안 뛰었으면 어제부터 거꾸로 센다.
+     *
+     * @param runDates 러닝 시작 시각 목록 (epoch ms)
+     */
+    private static int countStreakDays(List<Long> runDates) {
+        Set<Long> runDays = new HashSet<>();
+        for (long date : runDates) {
+            runDays.add(startOfDay(date));
+        }
+
+        long day = startOfDay(System.currentTimeMillis());
+        if (!runDays.contains(day)) {
+            day = previousDay(day);
+        }
+
+        int streak = 0;
+        while (runDays.contains(day)) {
+            streak++;
+            day = previousDay(day);
+        }
+        return streak;
+    }
+
+    private static long startOfDay(long millis) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(millis);
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis();
+    }
+
+    private static long previousDay(long dayStartMillis) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(dayStartMillis);
+        cal.add(Calendar.DAY_OF_MONTH, -1);
+        return cal.getTimeInMillis();
     }
 }

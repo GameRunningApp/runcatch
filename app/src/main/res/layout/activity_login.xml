@@ -40,7 +40,7 @@
             android:layout_width="match_parent"
             android:layout_height="160dp"
             android:layout_marginTop="15dp"
-            android:background="@drawable/bg_login_banner"
+            android:background="@drawable/bg_sky_banner"
             android:gravity="center"
             android:orientation="vertical">
 
@@ -137,7 +137,7 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="13dp"
-            android:background="@drawable/bg_login_button"
+            android:background="@drawable/bg_blue_button"
             android:stateListAnimator="@null"
             android:text="로그인"
             android:textColor="@color/white"
@@ -149,7 +149,7 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="16dp"
-            android:background="@drawable/bg_secondary_button"
+            android:background="@drawable/bg_sky_button"
             android:stateListAnimator="@null"
             android:text="간편 로그인"
             android:textColor="@color/text_primary"
