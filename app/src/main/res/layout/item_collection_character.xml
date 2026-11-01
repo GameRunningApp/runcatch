@@ -10,23 +10,39 @@
     android:foreground="?android:attr/selectableItemBackground"
     android:gravity="center_horizontal"
     android:orientation="vertical"
-    android:paddingTop="14dp"
+    android:paddingStart="6dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="6dp"
     android:paddingBottom="12dp">
+
+    <TextView
+        android:id="@+id/characterCategoryText"
+        android:layout_width="wrap_content"
+        android:layout_height="18dp"
+        android:background="@drawable/bg_category_chip"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:textColor="@color/primary"
+        android:textSize="10sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/characterEmojiText"
         android:layout_width="wrap_content"
-        android:layout_height="56dp"
+        android:layout_height="52dp"
+        android:layout_marginTop="6dp"
         android:gravity="center"
         android:includeFontPadding="false"
         android:textColor="@color/black"
-        android:textSize="40sp" />
+        android:textSize="36sp" />
 
     <TextView
         android:id="@+id/characterNameText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:includeFontPadding="false"
         android:textColor="@color/text_primary"
         android:textSize="14sp"
@@ -34,11 +50,13 @@
 
     <TextView
         android:id="@+id/characterConditionText"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
+        android:gravity="center"
         android:includeFontPadding="false"
+        android:maxLines="2"
         android:textColor="@color/text_secondary"
-        android:textSize="11sp" />
+        android:textSize="10sp" />
 
 </LinearLayout>
