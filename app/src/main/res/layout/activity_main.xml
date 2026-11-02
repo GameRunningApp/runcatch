@@ -74,7 +74,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="24dp"
                 android:layout_marginTop="10dp"
-                android:text="안녕하세요, ○○님!"
+                android:text="안녕하세요, OO님!"
                 android:textColor="@color/text_primary"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -85,8 +85,8 @@
                 android:layout_height="120dp"
                 android:layout_marginTop="12dp"
                 android:gravity="center"
+                android:text="..."
                 android:includeFontPadding="false"
-                android:text="🐰"
                 android:textColor="@color/black"
                 android:textSize="88sp" />
 
@@ -95,7 +95,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="토끼"
+                android:text="..."
                 android:textColor="@color/text_primary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -114,7 +114,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="0.0 Km"
+                android:text="0.0km"
                 android:textColor="@color/text_primary"
                 android:textSize="32sp"
                 android:textStyle="bold" />
@@ -134,7 +134,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="다음 캐릭터까지"
+                    android:text="다음 레벨까지"
                     android:textColor="@color/text_primary"
                     android:textSize="14sp"
                     android:textStyle="bold" />
@@ -147,7 +147,7 @@
                     android:orientation="horizontal">
 
                     <ProgressBar
-                        android:id="@+id/nextCharacterProgress"
+                        android:id="@+id/nextLevelProgress"
                         style="?android:attr/progressBarStyleHorizontal"
                         android:layout_width="0dp"
                         android:layout_height="8dp"
@@ -156,7 +156,7 @@
                         android:progressDrawable="@drawable/progress_next_character" />
 
                     <TextView
-                        android:id="@+id/nextCharacterText"
+                        android:id="@+id/nextLevelText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="14dp"

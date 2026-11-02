@@ -36,6 +36,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import com.cookandroid.runcatch.backend.GpsPoint;
+import com.cookandroid.runcatch.backend.RunCatchDbHelper;
+import com.cookandroid.runcatch.backend.RunRecord;
 
 public class RunningActivity extends AppCompatActivity {
     private Button btnPause_Resume;
@@ -67,6 +70,12 @@ public class RunningActivity extends AppCompatActivity {
     private LocationRequest locationRequest;
     private Location previousLocation;
     private float totalDistance = 0;
+
+    //DB 저장용
+    // 지도 경로(routePoints)는 일시정지마다 새로 만들어지므로, 저장할 좌표는 따로 모음 (러닝 중인 좌표만)
+    private final List<LatLng> recordedPoints = new ArrayList<>();
+    private float maxSpeed = 0; // km/h
+    private long runStartTime;  // 러닝 시작 시각 (epoch ms)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -155,6 +164,11 @@ public class RunningActivity extends AppCompatActivity {
                     }
                     // 거리 계산은 러닝 중에만 수행
                     if (!isPaused) {
+                        // 저장용 좌표와 최고 속도 기록
+                        recordedPoints.add(currentPosition);
+                        if (location.hasSpeed()) {
+                            maxSpeed = Math.max(maxSpeed, location.getSpeed() * 3.6f);
+                        }
                         if (previousLocation != null) {
                             float distance =
                                     previousLocation.distanceTo(location);
@@ -186,6 +200,7 @@ public class RunningActivity extends AppCompatActivity {
     }
 
     private void startTimer() {
+        runStartTime = System.currentTimeMillis();
         chronometer.setBase(SystemClock.elapsedRealtime());
         chronometer.setOnChronometerTickListener(
                 chronometer -> updatePace()
@@ -306,21 +321,74 @@ public class RunningActivity extends AppCompatActivity {
         chronometer.stop();
         //Gps 위치 측정 종료
         fusedLocationProviderClient.removeLocationUpdates(locationCallback);
-        //결과 화면으로 이동
-        //2km 등 조건을 달성하면 캐릭터 획득 화면, 아니면 바로 결과 화면으로
-        Class<?> next = CharacterRewardActivity.isRewardEligible(totalDistance / 1000)
-                ? CharacterRewardActivity.class : ResultActivity.class;
-        Intent intent = new Intent(RunningActivity.this, next);
+        //중복 저장 방지
+        btnStop.setEnabled(false);
 
-        //이동한 거리 전달
-        intent.putExtra("distance", totalDistance / 1000);
-        //걸린 시간 전달
-        intent.putExtra("elapsedTime", elapsedTime);
+        //러닝 기록 DB 저장
+        RunRecord record = saveRunRecord(elapsedTime);
 
-        startActivity(intent);
+        //서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
+        //획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
+        RewardServer.requestRewards(record, rewards -> {
+            //이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
+            List<RewardServer.Reward> newRewards = saveRewards(rewards);
 
-        //현재 화면 종료
-        finish();
+            Intent intent;
+            if (newRewards.isEmpty()) {
+                intent = new Intent(RunningActivity.this, ResultActivity.class);
+            } else {
+                intent = new Intent(RunningActivity.this, CharacterRewardActivity.class);
+                CharacterRewardActivity.putRewards(intent, newRewards);
+            }
+
+            //이동한 거리 전달
+            intent.putExtra("distance", totalDistance / 1000);
+            //걸린 시간 전달
+            intent.putExtra("elapsedTime", elapsedTime);
+
+            startActivity(intent);
+
+            //현재 화면 종료
+            finish();
+        });
+    }
+
+    /** 획득한 캐릭터를 user_character에 저장. 새로 저장된 것만 돌려줌 */
+    private List<RewardServer.Reward> saveRewards(List<RewardServer.Reward> rewards) {
+        RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
+        long now = System.currentTimeMillis();
+
+        List<RewardServer.Reward> newRewards = new ArrayList<>();
+        for (RewardServer.Reward reward : rewards) {
+            if (db.addUserCharacter(RunCatchDbHelper.CURRENT_USER_ID, reward.character.id, now)) {
+                newRewards.add(reward);
+            }
+        }
+        return newRewards;
+    }
+
+    /** running_record + gps_point 저장. 저장된 running_number가 담긴 기록을 돌려줌 */
+    private RunRecord saveRunRecord(long elapsedTime) {
+        float durationSec = elapsedTime / 1000f;
+        float distanceKm = totalDistance / 1000f;
+        float pace = distanceKm > 0 ? durationSec / distanceKm : 0;                   // 초/km
+        float avgSpeed = durationSec > 0 ? distanceKm / (durationSec / 3600f) : 0;    // km/h
+
+        RunRecord record = new RunRecord(0, RunCatchDbHelper.CURRENT_USER_ID, runStartTime,
+                totalDistance, durationSec, pace, avgSpeed, maxSpeed);
+
+        // backend 모듈은 MapLibre에 의존하지 않으므로 LatLng를 GpsPoint로 변환해서 넘긴다
+        List<GpsPoint> points = new ArrayList<>();
+        for (LatLng p : recordedPoints) {
+            points.add(new GpsPoint(p.getLatitude(), p.getLongitude()));
+        }
+        long runningNumber = RunCatchDbHelper.getInstance(this).insertRun(record, points);
+        if (runningNumber == -1) {
+            Toast.makeText(this, "러닝 기록 저장에 실패했습니다", Toast.LENGTH_SHORT).show();
+        }
+
+        return new RunRecord(runningNumber, record.userId, record.runDate, record.distance,
+                record.duration, record.pace, record.avgSpeed, record.maxSpeed);
     }
 
     @Override

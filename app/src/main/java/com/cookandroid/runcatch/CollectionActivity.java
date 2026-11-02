@@ -13,11 +13,12 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.cookandroid.runcatch.backend.RunCatchDbHelper;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class CollectionActivity extends BaseActivity {
 
@@ -25,6 +26,8 @@ public class CollectionActivity extends BaseActivity {
     private static final double DISTANCE_STEP_KM = 10;
 
     private List<RunCharacter> characters;
+    // 획득한 캐릭터 id (DB user_character)
+    private Set<Integer> ownedIds;
     private CharacterCategory.CharacterGroup selectedGroup = null;
     private TextView[] filterChips;
 
@@ -37,8 +40,12 @@ public class CollectionActivity extends BaseActivity {
         applySystemBarInsets();
         setupBottomNav(R.id.collectionNavButton);
 
-        double totalDistanceKm = 15.1;
-        characters = createCharacters();
+        RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
+        String userId = RunCatchDbHelper.CURRENT_USER_ID;
+
+        double totalDistanceKm = db.getTotalDistance(userId) / 1000.0;
+        characters = RunCharacter.ALL;
+        ownedIds = db.getOwnedCharacterIds(userId);
 
         bindSummary();
         bindNextCharacter(totalDistanceKm);
@@ -62,63 +69,14 @@ public class CollectionActivity extends BaseActivity {
         });
     }
 
-    private List<RunCharacter> createCharacters() {
-        List<RunCharacter> list = new ArrayList<>();
-        list.add(new RunCharacter("🦦", "수달", CharacterCategory.WATER,
-                "강·하천 근처 1Km 이상 러닝", "물가를 따라 달려보세요",
-                "강바람을 좋아하는 러닝 메이트", false));
-        list.add(new RunCharacter("🦆", "오리", CharacterCategory.WATER,
-                "호수 근처 러닝 3회", "잔잔한 호숫가를 자주 찾아보세요",
-                "호숫가 산책로의 단골 손님", false));
-        list.add(new RunCharacter("🐿️", "다람쥐", CharacterCategory.FOREST,
-                "공원·산책로 1Km 이상 러닝", "나무가 많은 곳을 달려보세요",
-                "작지만 꾸준한 러너", true));
-        list.add(new RunCharacter("🦔", "고슴도치", CharacterCategory.FOREST,
-                "숲길 누적 5Km 러닝", "숲길을 여러 번 달려보세요",
-                "천천히 그러나 끝까지 달리는 친구", false));
-        list.add(new RunCharacter("🐈", "고양이", CharacterCategory.CITY,
-                "도심 거리 1Km 이상 러닝", "도시 한복판을 달려보세요",
-                "밤거리 러닝을 즐기는 러너", true));
-        list.add(new RunCharacter("🕊️", "비둘기", CharacterCategory.CITY,
-                "번화가 러닝 3회", "사람이 많은 거리를 자주 달려보세요",
-                "도시 어디서나 만나는 친구", false));
-        list.add(new RunCharacter("🐐", "산양", CharacterCategory.MOUNTAIN,
-                "오르막길 1Km 이상 러닝", "언덕길에 도전해보세요",
-                "오르막을 두려워하지 않는 러너", false));
-        list.add(new RunCharacter("🦅", "독수리", CharacterCategory.MOUNTAIN,
-                "산길 누적 5Km 러닝", "높은 곳을 여러 번 달려보세요",
-                "정상에서 내려다보는 걸 좋아하는 친구", false));
-        list.add(new RunCharacter("🐰", "토끼", CharacterCategory.DISTANCE,
-                "누적 거리 10Km 달성", "조금만 더 달려보세요",
-                "가볍게 뛰는 걸 좋아하는 친구", true));
-        list.add(new RunCharacter("🦊", "여우", CharacterCategory.DISTANCE,
-                "누적 거리 20Km 달성", "꾸준히 거리를 쌓아보세요",
-                "페이스 조절의 달인", false));
-        list.add(new RunCharacter("🐻", "곰", CharacterCategory.DISTANCE,
-                "누적 거리 30Km 달성", "멀리 보고 달려보세요",
-                "든든한 장거리 러너", false));
-        list.add(new RunCharacter("🐥", "삐약이", CharacterCategory.STREAK,
-                "3일 연속 러닝", "며칠 연속으로 달려보세요",
-                "처음 만나는 러닝 동료", true));
-        list.add(new RunCharacter("🐶", "강아지", CharacterCategory.STREAK,
-                "7일 연속 러닝", "일주일 동안 하루도 빠짐없이 달려보세요",
-                "언제나 함께 달려주는 친구", false));
-        list.add(new RunCharacter("🦄", "유니콘", CharacterCategory.LEAGUE,
-                "월간 리그 1위", "이번 달 리그 정상에 도전해보세요",
-                "리그 1위에게만 나타나는 전설의 러너", false));
-        return list;
-    }
-
     private void bindSummary() {
         TextView collectedCountText = findViewById(R.id.collectedCountText);
-        TextView collectedCountBadge = findViewById(R.id.collectedCountBadge);
         ProgressBar collectionProgress = findViewById(R.id.collectionProgress);
 
         int unlocked = countUnlocked(null);
         int total = characters.size();
 
         collectedCountText.setText(unlocked + " / " + total);
-        collectedCountBadge.setText(unlocked + " / " + total);
         collectionProgress.setProgress(total > 0 ? Math.round(unlocked * 100f / total) : 0);
 
         bindGroupCount(R.id.placeCountText, CharacterCategory.CharacterGroup.PLACE);
@@ -134,11 +92,15 @@ public class CollectionActivity extends BaseActivity {
     private int countUnlocked(CharacterCategory.CharacterGroup group) {
         int count = 0;
         for (RunCharacter character : characters) {
-            if (character.unlocked && (group == null || character.category.group == group)) {
+            if (isOwned(character) && (group == null || character.category.group == group)) {
                 count++;
             }
         }
         return count;
+    }
+
+    private boolean isOwned(RunCharacter character) {
+        return ownedIds.contains(character.id);
     }
 
     private int countTotal(CharacterCategory.CharacterGroup group) {
@@ -160,7 +122,7 @@ public class CollectionActivity extends BaseActivity {
         double nextGoalKm = (Math.floor(totalDistanceKm / DISTANCE_STEP_KM) + 1) * DISTANCE_STEP_KM;
         RunCharacter next = null;
         for (RunCharacter character : characters) {
-            if (character.category == CharacterCategory.DISTANCE && !character.unlocked) {
+            if (character.category == CharacterCategory.DISTANCE && !isOwned(character)) {
                 next = character;
                 break;
             }
@@ -246,7 +208,7 @@ public class CollectionActivity extends BaseActivity {
 
         characterCategoryText.setText(character.category.label);
 
-        if (character.unlocked) {
+        if (isOwned(character)) {
             item.setBackgroundResource(R.drawable.bg_collection_unlocked);
             characterEmojiText.setText(character.emoji);
             characterNameText.setText(character.name);
@@ -264,7 +226,7 @@ public class CollectionActivity extends BaseActivity {
     private void showCharacterDialog(RunCharacter character) {
         String categoryLine = character.category.group.label + " · " + character.category.label + " 캐릭터";
 
-        if (character.unlocked) {
+        if (isOwned(character)) {
             new MaterialAlertDialogBuilder(this)
                     .setTitle(character.emoji + "  " + character.name)
                     .setMessage(character.description + "\n\n" + categoryLine

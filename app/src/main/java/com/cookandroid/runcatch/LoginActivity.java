@@ -15,6 +15,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.cookandroid.runcatch.backend.RunCatchDbHelper;
+
 public class LoginActivity extends AppCompatActivity {
 
     private EditText emailEditText;
@@ -86,6 +88,14 @@ public class LoginActivity extends AppCompatActivity {
         if (password.isEmpty()) {
             passwordEditText.setError("비밀번호를 입력하세요");
             passwordEditText.requestFocus();
+            return;
+        }
+
+        // 입력한 이메일/비밀번호를 user 테이블에 저장
+        boolean saved = RunCatchDbHelper.getInstance(this)
+                .updateUserLogin(RunCatchDbHelper.CURRENT_USER_ID, email, password);
+        if (!saved) {
+            Toast.makeText(this, "로그인 정보 저장에 실패했습니다", Toast.LENGTH_SHORT).show();
             return;
         }
 

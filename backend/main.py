@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 DB_PATH = "runcatch.db"
 EXP_PER_LEVEL = 5000
 
+# 테이블 구조를 바꾸면 올린다. DB의 버전이 더 낮으면 테이블을 지우고 새로 만든다 (개발 단계)
+# 2: 캐릭터를 앱의 14종(정수 id)으로, running_record를 앱 구조로 변경
+SCHEMA_VERSION = 2
+
 app = FastAPI()
 
 
@@ -17,34 +21,77 @@ def get_db():
     return conn
 
 
+# 앱 RunCharacter.ALL과 같은 목록. character_id는 앱의 RunCharacter.id
+# category는 앱 CharacterCategory 이름 (WATER, FOREST, CITY, MOUNTAIN, DISTANCE, STREAK, LEAGUE)
+# required_distance(m)는 누적 거리 캐릭터만 값이 있고, 나머지 조건은 아직 서버에서 판단하지 않음
+CHARACTERS = [
+    (1, "수달", "🦦", "WATER", "강·하천 근처 1Km 이상 러닝",
+     "물가를 따라 달려보세요", "강바람을 좋아하는 러닝 메이트", None),
+    (2, "오리", "🦆", "WATER", "호수 근처 러닝 3회",
+     "잔잔한 호숫가를 자주 찾아보세요", "호숫가 산책로의 단골 손님", None),
+    (3, "다람쥐", "🐿️", "FOREST", "공원·산책로 1Km 이상 러닝",
+     "나무가 많은 곳을 달려보세요", "작지만 꾸준한 러너", None),
+    (4, "고슴도치", "🦔", "FOREST", "숲길 누적 5Km 러닝",
+     "숲길을 여러 번 달려보세요", "천천히 그러나 끝까지 달리는 친구", None),
+    (5, "고양이", "🐈", "CITY", "도심 거리 1Km 이상 러닝",
+     "도시 한복판을 달려보세요", "밤거리 러닝을 즐기는 러너", None),
+    (6, "비둘기", "🕊️", "CITY", "번화가 러닝 3회",
+     "사람이 많은 거리를 자주 달려보세요", "도시 어디서나 만나는 친구", None),
+    (7, "산양", "🐐", "MOUNTAIN", "오르막길 1Km 이상 러닝",
+     "언덕길에 도전해보세요", "오르막을 두려워하지 않는 러너", None),
+    (8, "독수리", "🦅", "MOUNTAIN", "산길 누적 5Km 러닝",
+     "높은 곳을 여러 번 달려보세요", "정상에서 내려다보는 걸 좋아하는 친구", None),
+    (9, "토끼", "🐰", "DISTANCE", "누적 거리 10Km 달성",
+     "조금만 더 달려보세요", "가볍게 뛰는 걸 좋아하는 친구", 10000),
+    (10, "여우", "🦊", "DISTANCE", "누적 거리 20Km 달성",
+     "꾸준히 거리를 쌓아보세요", "페이스 조절의 달인", 20000),
+    (11, "곰", "🐻", "DISTANCE", "누적 거리 30Km 달성",
+     "멀리 보고 달려보세요", "든든한 장거리 러너", 30000),
+    (12, "삐약이", "🐥", "STREAK", "3일 연속 러닝",
+     "며칠 연속으로 달려보세요", "처음 만나는 러닝 동료", None),
+    (13, "강아지", "🐶", "STREAK", "7일 연속 러닝",
+     "일주일 동안 하루도 빠짐없이 달려보세요", "언제나 함께 달려주는 친구", None),
+    (14, "유니콘", "🦄", "LEAGUE", "월간 리그 1위",
+     "이번 달 리그 정상에 도전해보세요", "리그 1위에게만 나타나는 전설의 러너", None),
+]
+
+
 conn = get_db()
+if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+    conn.execute("DROP TABLE IF EXISTS user_character")
+    conn.execute("DROP TABLE IF EXISTS character")
+    conn.execute("DROP TABLE IF EXISTS running_record")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+# 앱 running_record와 같은 구조 (GPS 경로는 받지 않음)
 conn.execute("""
     CREATE TABLE IF NOT EXISTS running_record (
-        run_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id    TEXT    NOT NULL,
-        distance   REAL    NOT NULL,
-        duration   REAL    NOT NULL,
-        pace       REAL,
-        avg_speed  REAL,
-        max_speed  REAL,
-        started_at TEXT    NOT NULL,
-        created_at TEXT    NOT NULL
+        running_number INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id        TEXT    NOT NULL,
+        run_date       INTEGER NOT NULL,  -- 러닝 시작 시각 (epoch ms)
+        distance       REAL,              -- m
+        duration       REAL,              -- 초
+        pace           REAL,              -- 초/km
+        avg_speed      REAL,              -- km/h
+        max_speed      REAL               -- km/h
     )
 """)
 conn.execute("""
     CREATE TABLE IF NOT EXISTS character (
-        character_id      TEXT    PRIMARY KEY,
+        character_id      INTEGER PRIMARY KEY,
         name              TEXT    NOT NULL,
         emoji             TEXT    NOT NULL,
+        category          TEXT    NOT NULL,
+        condition         TEXT    NOT NULL,
+        hint              TEXT    NOT NULL,
         description       TEXT    NOT NULL,
-        required_distance INTEGER NOT NULL,
+        required_distance INTEGER,
         image_url         TEXT
     )
 """)
 conn.execute("""
     CREATE TABLE IF NOT EXISTS user_character (
         user_id      TEXT    NOT NULL,
-        character_id TEXT    NOT NULL,
+        character_id INTEGER NOT NULL,
         level        INTEGER NOT NULL DEFAULT 1,
         exp          INTEGER NOT NULL DEFAULT 0,
         is_main      INTEGER NOT NULL DEFAULT 0,
@@ -53,15 +100,12 @@ conn.execute("""
         FOREIGN KEY (character_id) REFERENCES character (character_id)
     )
 """)
+# 캐릭터 정보를 고치면 서버 재시작 때 반영되도록 REPLACE
 conn.executemany(
-    "INSERT OR IGNORE INTO character "
-    "(character_id, name, emoji, description, required_distance) "
-    "VALUES (?, ?, ?, ?, ?)",
-    [
-        ("chick", "삐약이", "🐥", "처음 만나는 러닝 동료", 2000),
-        ("rabbit", "토끼", "🐰", "빠른 발을 가진 친구", 10000),
-        ("turtle", "거북이", "🐢", "꾸준함의 상징", 30000),
-    ],
+    "INSERT OR REPLACE INTO character "
+    "(character_id, name, emoji, category, condition, hint, description, required_distance) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    CHARACTERS,
 )
 conn.commit()
 conn.close()
@@ -69,20 +113,23 @@ conn.close()
 
 class RunCreate(BaseModel):
     user_id: str
+    run_date: Optional[int] = None  # 러닝 시작 시각 (epoch ms). 없으면 서버가 받은 시각
     distance: float = Field(ge=0)
     duration: float = Field(ge=0)
     pace: Optional[float] = None
     avg_speed: Optional[float] = None
     max_speed: Optional[float] = None
-    started_at: Optional[datetime] = None
 
 
 class Character(BaseModel):
-    character_id: str
+    character_id: int
     name: str
     emoji: str
+    category: str
+    condition: str
+    hint: str
     description: str
-    required_distance: int
+    required_distance: Optional[int] = None
     image_url: Optional[str] = None
 
 
@@ -94,9 +141,8 @@ class OwnedCharacter(Character):
 
 
 class Run(RunCreate):
-    run_id: int
-    started_at: datetime
-    created_at: datetime
+    running_number: int
+    run_date: int
     new_characters: list[Character] = []
 
 
@@ -133,9 +179,11 @@ def get_owned_characters(conn, user_id):
 
 
 def unlock_characters(conn, user_id):
+    # TODO: 지금은 누적 거리 캐릭터(required_distance 있음)만 판단. 장소·연속·리그는 추후
     total = get_total_distance(conn, user_id)
     rows = conn.execute(
-        "SELECT * FROM character WHERE required_distance <= ? AND character_id NOT IN "
+        "SELECT * FROM character WHERE required_distance IS NOT NULL "
+        "AND required_distance <= ? AND character_id NOT IN "
         "(SELECT character_id FROM user_character WHERE user_id = ?) "
         "ORDER BY required_distance",
         (total, user_id),
@@ -178,33 +226,30 @@ def home():
 
 @app.post("/runs", response_model=Run, status_code=201)
 def create_run(run: RunCreate):
-    created_at = datetime.now()
-    started_at = run.started_at or created_at
+    run_date = run.run_date or int(datetime.now().timestamp() * 1000)
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO running_record (user_id, distance, duration, pace, avg_speed, "
-        "max_speed, started_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO running_record (user_id, run_date, distance, duration, pace, "
+        "avg_speed, max_speed) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             run.user_id,
+            run_date,
             run.distance,
             run.duration,
             run.pace,
             run.avg_speed,
             run.max_speed,
-            started_at.isoformat(),
-            created_at.isoformat(),
         ),
     )
-    run_id = cursor.lastrowid
+    running_number = cursor.lastrowid
     add_exp_to_main(conn, run.user_id, run.distance)
     new_characters = unlock_characters(conn, run.user_id)
     conn.commit()
     conn.close()
     run_data = run.model_dump()
-    run_data["started_at"] = started_at
+    run_data["run_date"] = run_date
     return Run(
-        run_id=run_id,
-        created_at=created_at,
+        running_number=running_number,
         new_characters=new_characters,
         **run_data,
     )
@@ -214,7 +259,7 @@ def create_run(run: RunCreate):
 def get_runs(user_id: str):
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM running_record WHERE user_id = ? ORDER BY started_at DESC",
+        "SELECT * FROM running_record WHERE user_id = ? ORDER BY run_date DESC",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -254,12 +299,15 @@ def get_weekly_stats(user_id: str):
     today = date.today()
     week_ago = today - timedelta(days=6)
     conn = get_db()
+    week_ago_ms = int(datetime.combine(week_ago, datetime.min.time()).timestamp() * 1000)
+    # run_date(epoch ms)를 서버 로컬 시간 기준 날짜(YYYY-MM-DD)로 묶음
     rows = conn.execute(
-        "SELECT substr(started_at, 1, 10) AS day, SUM(distance) AS distance "
+        "SELECT date(run_date / 1000, 'unixepoch', 'localtime') AS day, "
+        "SUM(distance) AS distance "
         "FROM running_record "
-        "WHERE user_id = ? AND substr(started_at, 1, 10) >= ? "
+        "WHERE user_id = ? AND run_date >= ? "
         "GROUP BY day",
-        (user_id, week_ago.isoformat()),
+        (user_id, week_ago_ms),
     ).fetchall()
     conn.close()
     by_day = {row["day"]: row["distance"] for row in rows}
@@ -273,7 +321,7 @@ def get_weekly_stats(user_id: str):
 @app.get("/characters", response_model=list[Character])
 def get_characters():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM character ORDER BY required_distance").fetchall()
+    rows = conn.execute("SELECT * FROM character ORDER BY character_id").fetchall()
     conn.close()
     return [Character(**dict(row)) for row in rows]
 
@@ -287,7 +335,7 @@ def get_user_characters(user_id: str):
 
 
 @app.put("/users/{user_id}/main-character/{character_id}", response_model=OwnedCharacter)
-def set_main_character(user_id: str, character_id: str):
+def set_main_character(user_id: str, character_id: int):
     conn = get_db()
     owned = conn.execute(
         "SELECT 1 FROM user_character WHERE user_id = ? AND character_id = ?",
