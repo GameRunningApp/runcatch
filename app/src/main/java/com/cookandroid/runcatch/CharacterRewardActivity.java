@@ -128,6 +128,16 @@ public class CharacterRewardActivity extends BaseActivity {
         Intent intent = new Intent(this, ResultActivity.class);
         intent.putExtra(EXTRA_DISTANCE, getIntent().getFloatExtra(EXTRA_DISTANCE, 0f));
         intent.putExtra(EXTRA_ELAPSED_TIME, getIntent().getLongExtra(EXTRA_ELAPSED_TIME, 0L));
+        // GPS 위도 배열 전달
+        double[] routeLatitude =
+                getIntent().getDoubleArrayExtra("routeLatitude");
+
+        // GPS 경도 배열 전달
+        double[] routeLongitude =
+                getIntent().getDoubleArrayExtra("routeLongitude");
+
+        intent.putExtra("routeLatitude", routeLatitude);
+        intent.putExtra("routeLongitude", routeLongitude);
         startActivity(intent);
         finish();
     }
