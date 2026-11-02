@@ -106,8 +106,9 @@ public class MainActivity extends BaseActivity {
             characterImageText.setText(character.emoji);
             characterNameText.setText(character.name);
         } else {
+            // 아직 획득한 캐릭터가 없는 상태 (처음 시작했을 때)
             characterImageText.setText("❔");
-            characterNameText.setText("대표 캐릭터 없음");
+            characterNameText.setText("아직 만난 캐릭터가 없어요");
         }
         distanceText.setText(
                 String.format(Locale.US, "%.1f Km", totalDistanceKm));

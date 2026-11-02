@@ -19,7 +19,9 @@ import java.util.Set;
 public class RunCatchDbHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "runcatch.db";
-    private static final int DB_VERSION = 3;  // 3: 도감 v2 캐릭터 id로 변경
+    // 3: 도감 v2 캐릭터 id로 변경
+    // 4: 처음 시작할 때 캐릭터 없이 시작 (토끼 기본 지급 제거)
+    private static final int DB_VERSION = 4;
 
     // TODO(로그인): 닉네임 설정이 붙으면 로그인한 유저의 user_id로 바꾼다
     public static final String CURRENT_USER_ID = "aaa";
@@ -85,20 +87,13 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
                 + "acquired_date INTEGER NOT NULL, "  // 획득 시각 (epoch ms)
                 + "PRIMARY KEY (user_id, character_id))");
 
-        // TODO(로그인): 회원가입이 생기기 전까지 쓰는 임시 유저. 대표 캐릭터는 토끼(9)
+        // TODO(로그인): 회원가입이 생기기 전까지 쓰는 임시 유저.
+        // 처음에는 획득한 캐릭터가 없으므로 대표 캐릭터(character_id)도 비워 둔다 (NULL)
         ContentValues user = new ContentValues();
         user.put("mail", "aaa@runcatch.com");
         user.put("user_id", CURRENT_USER_ID);
         user.put("password", "");
-        user.put("character_id", 9);
         db.insert(TABLE_USER, null, user);
-
-        // 대표 캐릭터는 가지고 있는 캐릭터여야 하므로 토끼를 획득한 상태로 시작
-        ContentValues owned = new ContentValues();
-        owned.put("user_id", CURRENT_USER_ID);
-        owned.put("character_id", 9);
-        owned.put("acquired_date", System.currentTimeMillis());
-        db.insert(TABLE_USER_CHARACTER, null, owned);
     }
 
     @Override
@@ -153,16 +148,26 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
 
     /**
      * 획득한 캐릭터 저장. 이미 가지고 있는 캐릭터면 저장하지 않는다.
+     * 대표 캐릭터가 아직 없으면 처음 얻은 캐릭터를 대표 캐릭터로 정한다 (서버 규칙과 같음).
      *
      * @return 새로 저장했으면 true, 이미 가지고 있었으면 false
      */
     public boolean addUserCharacter(String userId, int characterId, long acquiredDate) {
+        SQLiteDatabase db = getWritableDatabase();
         ContentValues values = new ContentValues();
         values.put("user_id", userId);
         values.put("character_id", characterId);
         values.put("acquired_date", acquiredDate);
-        return getWritableDatabase().insertWithOnConflict(
+        boolean added = db.insertWithOnConflict(
                 TABLE_USER_CHARACTER, null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1;
+
+        if (added) {
+            ContentValues main = new ContentValues();
+            main.put("character_id", characterId);
+            db.update(TABLE_USER, main, "user_id = ? AND character_id IS NULL",
+                    new String[]{userId});
+        }
+        return added;
     }
 
     /**
@@ -223,14 +228,26 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
         }
     }
 
+    private static final String RUN_COLUMNS =
+            "running_number, user_id, run_date, distance, duration, pace, avg_speed, max_speed";
+
     /** 최근 러닝 limit건 (최신순) */
     public List<RunRecord> getRecentRuns(String userId, int limit) {
-        List<RunRecord> runs = new ArrayList<>();
-        try (Cursor c = getReadableDatabase().rawQuery(
-                "SELECT running_number, user_id, run_date, distance, duration, pace, avg_speed, max_speed"
-                        + " FROM " + TABLE_RUNNING_RECORD
+        return queryRuns("SELECT " + RUN_COLUMNS + " FROM " + TABLE_RUNNING_RECORD
                         + " WHERE user_id = ? ORDER BY run_date DESC LIMIT " + limit,
-                new String[]{userId})) {
+                new String[]{userId});
+    }
+
+    /** fromMillis 이후 시작한 러닝 전부 (최신순). fromMillis가 0이면 전체 기록 */
+    public List<RunRecord> getRunsSince(String userId, long fromMillis) {
+        return queryRuns("SELECT " + RUN_COLUMNS + " FROM " + TABLE_RUNNING_RECORD
+                        + " WHERE user_id = ? AND run_date >= ? ORDER BY run_date DESC",
+                new String[]{userId, String.valueOf(fromMillis)});
+    }
+
+    private List<RunRecord> queryRuns(String sql, String[] args) {
+        List<RunRecord> runs = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(sql, args)) {
             while (c.moveToNext()) {
                 runs.add(new RunRecord(c.getLong(0), c.getString(1), c.getLong(2), c.getFloat(3),
                         c.getFloat(4), c.getFloat(5), c.getFloat(6), c.getFloat(7)));
