@@ -345,6 +345,16 @@ public class RunningActivity extends AppCompatActivity {
             intent.putExtra("distance", totalDistance / 1000);
             //걸린 시간 전달
             intent.putExtra("elapsedTime", elapsedTime);
+            // GPS 경로 전달
+            double[] routeLatitude = new double[recordedPoints.size()];
+            double[] routeLongitude = new double[recordedPoints.size()];
+
+            for (int i = 0; i < recordedPoints.size(); i++) {
+                routeLatitude[i] = recordedPoints.get(i).getLatitude();
+                routeLongitude[i] = recordedPoints.get(i).getLongitude();
+            }
+            intent.putExtra("routeLatitude", routeLatitude);
+            intent.putExtra("routeLongitude", routeLongitude);
 
             startActivity(intent);
 
