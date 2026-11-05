@@ -314,6 +314,7 @@ public class RunningActivity extends AppCompatActivity {
         }
         runningRoute = null;
         previousLocation = null;
+        render();
     }
     private void StopRunning() {
         long elapsedTime = isPaused ?
@@ -432,4 +433,45 @@ public class RunningActivity extends AppCompatActivity {
         super.onSaveInstanceState(outState);
         mapView.onSaveInstanceState(outState);
     }
+
+    private RunningService service;
+    private final ServiceConnection connection = new ServiceConnection(){
+      @Override
+        public void onServiceConnected(ComponentName name, IBinder binder){
+          service = ((RunningService.LocalBinder) binder).getService();
+          maybeStart();
+          render();
+      }
+      @Override
+        public void onServiceDisconnected(ComponentName name){
+          service = null;
+          btnPause_Resume.setEnabled(false);
+          btnStop.setEnabled(false);
+          titleText.setText("러닝 서비스 연결이 끊어졌습니다");
+      }
+    };
+    private void render(){
+        if(service == null || finishingRun) return;
+        boolean active = service.isActive();
+        isPaused = service.isPaused();
+        totalDistance = service.gerMeters();
+        long elapsed = service.getElapsedMillis();
+        if (isPaused) pauseOffset = elapsed;
+        btnPause_Resume.setEnabled(active);
+        btnStop.setEnabled(active);
+        btnPause_Resume.setText(isPaused ? "다시시작" : "일시정지");
+        chronometer.setBase(SystemClock.elapsedRealtime() - elapsed);
+        chronometer.setText(RunningService.formatTime(elapsed));
+        updatePace();
+        runningDistanceText.setText(String.format(Locate.KOREA, "%.2f km", totalDistance / 1000f));
+        String error = service.getError();
+        if(error != null){
+            titleText.setText(error);
+            if(!error.equals(lastError)) Toast.makeText(this, error,Toast.LENGTH_LONG).show();
+        } else if(active) titleText.setText(isPaused ? "러닝 일시정지" : "러닝 측정 중");
+        lastError = error;
+        if(isMapStyleLoaded && drawnVersion != service.getRouteVersion()) drawRoute();
+    }
+
+
 }
