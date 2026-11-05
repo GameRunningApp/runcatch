@@ -1,4 +1,4 @@
-package com.cookandroid.runcatch;
+package com.cookandroid.runcatch.backend;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -50,7 +50,9 @@ public class RunCharacter {
                     "언제나 함께 달려주는 친구"),
             new RunCharacter(14, "🦄", "유니콘", CharacterCategory.LEAGUE,
                     "월간 리그 1위", "이번 달 리그 정상에 도전해보세요",
-                    "리그 1위에게만 나타나는 전설의 러너")));
+                    "리그 1위에게만 나타나는 전설의 러너"),
+            new RunCharacter(15, "임시", "임시", CharacterCategory.DISTANCE,
+                    "임시", "임시", "임시")));
 
     public final int id;
     public final String emoji;

@@ -1,5 +1,6 @@
 package com.cookandroid.runcatch;
 
+import com.cookandroid.runcatch.backend.RunCharacter;
 import com.cookandroid.runcatch.backend.RunRecord;
 
 import java.util.ArrayList;
