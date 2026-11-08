@@ -1,6 +1,7 @@
 package com.cookandroid.runcatch;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Toast;
 import android.widget.Button;
 
@@ -20,6 +21,9 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.maplibre.android.maps.MapLibreMap;
 import org.maplibre.android.maps.MapView;
 import org.maplibre.android.maps.OnMapReadyCallback;
@@ -31,6 +35,8 @@ import org.maplibre.android.annotations.Polyline;
 import org.maplibre.android.annotations.PolylineOptions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -73,7 +79,11 @@ public class RunningActivity extends AppCompatActivity {
 
     //DB 저장용
     // 지도 경로(routePoints)는 일시정지마다 새로 만들어지므로, 저장할 좌표는 따로 모음 (러닝 중인 좌표만)
-    private final List<LatLng> recordedPoints = new ArrayList<>();
+    private List<LatLng> recordedPoints = new ArrayList<>();
+    // 각 GPS 좌표가 기록된 시간 (밀리초)
+    private List<Long> recordedTimestamps = new ArrayList<>();
+    // 일시정지 후 다시 시작한 좌표의 인덱스
+    private List<Integer> breakIndices = new ArrayList<>();
     private float maxSpeed = 0; // km/h
     private long runStartTime;  // 러닝 시작 시각 (epoch ms)
 
@@ -164,8 +174,10 @@ public class RunningActivity extends AppCompatActivity {
                     }
                     // 거리 계산은 러닝 중에만 수행
                     if (!isPaused) {
-                        // 저장용 좌표와 최고 속도 기록
                         recordedPoints.add(currentPosition);
+                        // GPS 좌표가 실제로 측정된 시각 저장
+                        long timestamp = location.getElapsedRealtimeNanos() / 1_000_000L;
+                        recordedTimestamps.add(timestamp);
                         if (location.hasSpeed()) {
                             maxSpeed = Math.max(maxSpeed, location.getSpeed() * 3.6f);
                         }
@@ -297,6 +309,11 @@ public class RunningActivity extends AppCompatActivity {
             chronometer.start();
             isPaused = false;
 
+            // 재개 후 처음 기록될 GPS 좌표의 인덱스 저장
+            if (!recordedPoints.isEmpty()) {
+                breakIndices.add(recordedPoints.size());
+            }
+
             btnPause_Resume.setText("일시정지");
         }
         // 상태가 바뀌면 새로운 경로 구간 시작
@@ -315,53 +332,231 @@ public class RunningActivity extends AppCompatActivity {
         runningRoute = null;
         previousLocation = null;
     }
-    private void StopRunning() {
-        long elapsedTime = isPaused ?
-                pauseOffset : SystemClock.elapsedRealtime() - chronometer.getBase();
-        chronometer.stop();
-        //Gps 위치 측정 종료
-        fusedLocationProviderClient.removeLocationUpdates(locationCallback);
-        //중복 저장 방지
-        btnStop.setEnabled(false);
 
-        //러닝 기록 DB 저장
+    // 환경 분석이 완료되면 환경별 체류 시간을 전달하는 콜백
+    private interface EnvironmentCallback {
+        void onComplete(Map<String, Long> environmentTimes);
+    }
+
+    // 환경 분석에 실패했을 때 사용할 기본값
+    private Map<String, Long> createEmptyEnvironmentTimes() {
+        Map<String, Long> times = new HashMap<>();
+
+        times.put("공원", 0L);
+        times.put("숲", 0L);
+        times.put("하천", 0L);
+
+        return times;
+    }
+
+    // 러닝 경로를 기준으로 환경 데이터 요청 및 체류 시간 계산
+    private void searchEnvironmentForRoute(EnvironmentCallback callback) {
+
+        // GPS 좌표가 없는 경우
+        if (recordedPoints == null || recordedPoints.size() < 2) {
+            Log.d("OVERPASS_TEST", "환경 분석에 필요한 GPS 좌표가 부족합니다.");
+            callback.onComplete(createEmptyEnvironmentTimes());
+            return;
+        }
+
+        // 첫 번째 좌표를 기준으로 경계값 초기화
+        double south = recordedPoints.get(0).getLatitude();
+        double north = recordedPoints.get(0).getLatitude();
+
+        double west = recordedPoints.get(0).getLongitude();
+        double east = recordedPoints.get(0).getLongitude();
+
+        // 모든 GPS 좌표를 확인하며 경계값 계산
+        for (LatLng point : recordedPoints) {
+            double latitude = point.getLatitude();
+            double longitude = point.getLongitude();
+
+            south = Math.min(south, latitude);
+            north = Math.max(north, latitude);
+
+            west = Math.min(west, longitude);
+            east = Math.max(east, longitude);
+        }
+
+        // 러닝 경로 주변 환경도 포함하도록 여유 추가
+        double margin = 0.001;
+
+        south -= margin;
+        north += margin;
+        west -= margin;
+        east += margin;
+
+        Log.d("OVERPASS_TEST", "러닝 경로 환경 검색 시작");
+        Log.d("OVERPASS_TEST", "저장된 GPS 좌표 수: " + recordedPoints.size());
+        Log.d("OVERPASS_TEST", "저장된 시간 수: " + recordedTimestamps.size());
+        Log.d("OVERPASS_TEST", "일시정지 구간 수: " + breakIndices.size());
+
+        // Overpass API 요청
+        OverpassApi.searchEnvironment(
+                south,
+                west,
+                north,
+                east,
+                new OverpassApi.Callback() {
+
+                    @Override
+                    public void onSuccess(String result) {
+                        try {
+                            // 1. Overpass JSON을 환경 객체로 변환
+                            ArrayList<OsmEnvironment> environments =
+                                    EnvironmentParser.parse(result);
+
+                            Log.d("OVERPASS_TEST",
+                                    "찾은 환경 객체 수: " + environments.size());
+
+                            // 2. GPS 경로를 OsmCoordinate 형식으로 변환
+                            ArrayList<OsmCoordinate> routeCoordinates =
+                                    new ArrayList<>();
+
+                            for (LatLng point : recordedPoints) {
+                                routeCoordinates.add(
+                                        new OsmCoordinate(
+                                                point.getLatitude(),
+                                                point.getLongitude()
+                                        )
+                                );
+                            }
+
+                            // 3. 환경별 체류 시간 계산
+                            Map<String, Long> environmentTimes =
+                                    EnvironmentAnalyzer.calculateEnvironmentTimes(
+                                            routeCoordinates,
+                                            recordedTimestamps,
+                                            breakIndices,
+                                            environments
+                                    );
+
+                            // 4. 환경별 체류 시간 로그
+                            for (Map.Entry<String, Long> entry
+                                    : environmentTimes.entrySet()) {
+
+                                Log.d(
+                                        "ENVIRONMENT_TIME",
+                                        entry.getKey() + " 체류 시간: "
+                                                + entry.getValue() / 1000.0
+                                                + "초"
+                                );
+                            }
+
+                            // 5. 계산 완료 후 결과 전달
+                            callback.onComplete(environmentTimes);
+
+                        } catch (Exception e) {
+                            Log.e("OVERPASS_TEST", "환경 분석 실패", e);
+
+                            // 분석 실패 시 기본값 전달
+                            callback.onComplete(createEmptyEnvironmentTimes());
+                        }
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        Log.e("OVERPASS_TEST", "환경 데이터 요청 실패", e);
+
+                        // API 요청 실패 시 기본값 전달
+                        callback.onComplete(createEmptyEnvironmentTimes());
+                    }
+                }
+        );
+    }
+
+
+    private void StopRunning() {
+        long elapsedTime = isPaused
+                ? pauseOffset
+                : SystemClock.elapsedRealtime() - chronometer.getBase();
+
+        chronometer.stop();
+
+        // GPS 위치 측정 종료
+        fusedLocationProviderClient.removeLocationUpdates(locationCallback);
+
+        // 중복 저장 방지
+        btnStop.setEnabled(false);
+        btnPause_Resume.setEnabled(false);
+
+        // 러닝 기록 DB 저장
         RunRecord record = saveRunRecord(elapsedTime);
 
-        //서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
-        //획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
-        RewardServer.requestRewards(record, rewards -> {
-            //이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
-            List<RewardServer.Reward> newRewards = saveRewards(rewards);
+        // 환경 분석이 완료된 뒤 보상 판정 진행
+        searchEnvironmentForRoute(environmentTimes -> {
 
-            Intent intent;
-            if (newRewards.isEmpty()) {
-                intent = new Intent(RunningActivity.this, ResultActivity.class);
-            } else {
-                intent = new Intent(RunningActivity.this, CharacterRewardActivity.class);
-                CharacterRewardActivity.putRewards(intent, newRewards);
-            }
+            // Overpass 콜백은 백그라운드 스레드일 수 있으므로
+            // 화면 이동 및 UI 관련 작업은 메인 스레드에서 실행
+            runOnUiThread(() -> {
 
-            //이동한 거리 전달
-            intent.putExtra("distance", totalDistance / 1000);
-            //걸린 시간 전달
-            intent.putExtra("elapsedTime", elapsedTime);
-            // GPS 경로 전달
-            double[] routeLatitude = new double[recordedPoints.size()];
-            double[] routeLongitude = new double[recordedPoints.size()];
+                Log.d("REWARD_SERVER", "환경 분석 완료. 보상 판정 시작");
 
-            for (int i = 0; i < recordedPoints.size(); i++) {
-                routeLatitude[i] = recordedPoints.get(i).getLatitude();
-                routeLongitude[i] = recordedPoints.get(i).getLongitude();
-            }
-            intent.putExtra("routeLatitude", routeLatitude);
-            intent.putExtra("routeLongitude", routeLongitude);
+                RewardServer.requestRewards(
+                        record,
+                        environmentTimes,
+                        rewards -> {
 
-            startActivity(intent);
+                            // 이미 가진 캐릭터는 제외하고 새 캐릭터만 저장
+                            List<RewardServer.Reward> newRewards =
+                                    saveRewards(rewards);
 
-            //현재 화면 종료
-            finish();
+                            Intent intent;
+
+                            if (newRewards.isEmpty()) {
+                                intent = new Intent(
+                                        RunningActivity.this,
+                                        ResultActivity.class
+                                );
+                            } else {
+                                intent = new Intent(
+                                        RunningActivity.this,
+                                        CharacterRewardActivity.class
+                                );
+
+                                CharacterRewardActivity.putRewards(
+                                        intent,
+                                        newRewards
+                                );
+                            }
+
+                            // 이동한 거리 전달
+                            intent.putExtra(
+                                    "distance",
+                                    totalDistance / 1000
+                            );
+
+                            // 걸린 시간 전달
+                            intent.putExtra("elapsedTime", elapsedTime);
+
+                            // GPS 경로 전달
+                            double[] routeLatitude =
+                                    new double[recordedPoints.size()];
+
+                            double[] routeLongitude =
+                                    new double[recordedPoints.size()];
+
+                            for (int i = 0; i < recordedPoints.size(); i++) {
+                                routeLatitude[i] =
+                                        recordedPoints.get(i).getLatitude();
+
+                                routeLongitude[i] =
+                                        recordedPoints.get(i).getLongitude();
+                            }
+
+                            intent.putExtra("routeLatitude", routeLatitude);
+                            intent.putExtra("routeLongitude", routeLongitude);
+
+                            startActivity(intent);
+
+                            // 현재 화면 종료
+                            finish();
+                        }
+                );
+            });
         });
     }
+
 
     /** 획득한 캐릭터를 user_character에 저장. 새로 저장된 것만 돌려줌 */
     private List<RewardServer.Reward> saveRewards(List<RewardServer.Reward> rewards) {
