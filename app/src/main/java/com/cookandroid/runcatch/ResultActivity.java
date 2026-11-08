@@ -1,6 +1,7 @@
 package com.cookandroid.runcatch;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 
@@ -33,6 +34,12 @@ public class ResultActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_result);
+
+        // 러닝 화면에서 전달받은 최종 환경
+        String finalEnvironment = getIntent().getStringExtra("finalEnvironment");
+
+        // 환경 정보 확인
+        Log.d("ENV_RESULT", "최종 러닝 환경: " + finalEnvironment);
 
         // 계속하기 버튼
         Button continueButton = findViewById(R.id.continueButton);
