@@ -1,6 +1,8 @@
+
 package com.cookandroid.runcatch;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Toast;
 import android.widget.Button;
 
@@ -22,7 +24,6 @@ import com.google.android.gms.location.Priority;
 
 import org.maplibre.android.maps.MapLibreMap;
 import org.maplibre.android.maps.MapView;
-import org.maplibre.android.maps.OnMapReadyCallback;
 import org.maplibre.android.geometry.LatLng;
 import org.maplibre.android.camera.CameraUpdateFactory;
 
@@ -55,7 +56,14 @@ public class RunningActivity extends AppCompatActivity {
     private List<LatLng> routePoints = new ArrayList<>();
     // 지도에 표시할 러닝 경로 선
     private Polyline runningRoute;
-    private boolean isFirstLocation = true;
+
+    // 사전 저장 환경 데이터
+    private ArrayList<EnvironmentFeature> environmentFeatures;
+    // 환경별 GPS 좌표 카운트
+    private int parkCount = 0;
+    private int forestCount = 0;
+    private int riverCount = 0;
+    private int lakeCount = 0;
 
     //Timer
     private Chronometer chronometer;
@@ -73,19 +81,26 @@ public class RunningActivity extends AppCompatActivity {
 
     //DB 저장용
     // 지도 경로(routePoints)는 일시정지마다 새로 만들어지므로, 저장할 좌표는 따로 모음 (러닝 중인 좌표만)
-    private final List<LatLng> recordedPoints = new ArrayList<>();
+    private List<LatLng> recordedPoints = new ArrayList<>();
     private float maxSpeed = 0; // km/h
     private long runStartTime;  // 러닝 시작 시각 (epoch ms)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
-
         // MapLibre 초기화
         org.maplibre.android.MapLibre.getInstance(this);
 
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_running);
+
+        // 사전 저장 환경 데이터 불러오기
+        environmentFeatures = EnvironmentDataLoader.load(this);
+
+        Log.d(
+                "ENV_TEST",
+                "불러온 환경 데이터 개수: " + environmentFeatures.size()
+        );
 
         //뷰 설정
         btnPause_Resume = findViewById(R.id.btnPause);
@@ -164,8 +179,12 @@ public class RunningActivity extends AppCompatActivity {
                     }
                     // 거리 계산은 러닝 중에만 수행
                     if (!isPaused) {
-                        // 저장용 좌표와 최고 속도 기록
                         recordedPoints.add(currentPosition);
+                        // 현재 GPS 좌표가 포함되는 환경 카운트
+                        countEnvironmentAtLocation(
+                                location.getLatitude(),
+                                location.getLongitude()
+                        );
                         if (location.hasSpeed()) {
                             maxSpeed = Math.max(maxSpeed, location.getSpeed() * 3.6f);
                         }
@@ -207,12 +226,14 @@ public class RunningActivity extends AppCompatActivity {
         );
         chronometer.start();
     }
+
     private boolean hasLocationPermission() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED
                 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED;
     }
+
     private void updatePace() {
         if (totalDistance < 10) {
             runningPaceText.setText("--'--\"/km");
@@ -244,6 +265,7 @@ public class RunningActivity extends AppCompatActivity {
                 )
         );
     }
+
     private void checkPermission_Start() {
         if (!hasLocationPermission()) {
             ActivityCompat.requestPermissions(
@@ -258,6 +280,7 @@ public class RunningActivity extends AppCompatActivity {
         }
         startLocationUpdates();
     }
+
     private void startLocationUpdates() {
         if (!hasLocationPermission()) return;
         fusedLocationProviderClient.requestLocationUpdates(
@@ -266,10 +289,11 @@ public class RunningActivity extends AppCompatActivity {
                 getMainLooper()
         );
     }
+
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            @NonNull String[] permissions,
-                                           @NonNull int[]grantResults) {
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
@@ -280,6 +304,7 @@ public class RunningActivity extends AppCompatActivity {
             }
         }
     }
+
     private void Pause_Resume() {
         if (!isPaused) {
             // 러닝 일시정지
@@ -315,25 +340,112 @@ public class RunningActivity extends AppCompatActivity {
         runningRoute = null;
         previousLocation = null;
     }
+
+    // GPS 좌표가 포함된 환경의 카운트를 증가시킨다.
+    private void countEnvironmentAtLocation(double latitude, double longitude) {
+
+        // 해당 GPS 좌표가 포함되는 환경 종류 확인
+        java.util.Set<String> matchedCategories =
+                EnvironmentMatcher.findMatchedCategories(
+                        latitude,
+                        longitude,
+                        environmentFeatures
+                );
+
+        // 환경별 카운트 증가
+        if (matchedCategories.contains("PARK")) {
+            parkCount++;
+        }
+
+        if (matchedCategories.contains("FOREST")) {
+            forestCount++;
+        }
+
+        if (matchedCategories.contains("RIVER")) {
+            riverCount++;
+        }
+
+        if (matchedCategories.contains("LAKE")) {
+            lakeCount++;
+        }
+
+        Log.d(
+                "ENV_COUNT",
+                "공원: " + parkCount
+                        + ", 숲: " + forestCount
+                        + ", 하천: " + riverCount
+                        + ", 호수: " + lakeCount
+        );
+    }
+    // 러닝 종료 시 가장 많이 기록된 환경 판정
+    private String getFinalEnvironment() {
+
+        // 모든 환경 카운트가 0이면 도심
+        if (parkCount == 0
+                && forestCount == 0
+                && riverCount == 0
+                && lakeCount == 0) {
+
+            return "CITY";
+        }
+
+        // 가장 높은 카운트 찾기
+        int maxCount = Math.max(
+                Math.max(parkCount, forestCount),
+                Math.max(riverCount, lakeCount)
+        );
+
+        // 가장 많이 기록된 환경 반환
+        if (parkCount == maxCount) {
+            return "PARK";
+        }
+
+        if (forestCount == maxCount) {
+            return "FOREST";
+        }
+
+        if (riverCount == maxCount) {
+            return "RIVER";
+        }
+
+        return "LAKE";
+    }
+
     private void StopRunning() {
         long elapsedTime = isPaused ?
                 pauseOffset : SystemClock.elapsedRealtime() - chronometer.getBase();
+
         chronometer.stop();
-        //Gps 위치 측정 종료
+
+        // GPS 위치 측정 종료
         fusedLocationProviderClient.removeLocationUpdates(locationCallback);
-        //중복 저장 방지
+
+        // 중복 저장 방지
         btnStop.setEnabled(false);
 
-        //러닝 기록 DB 저장
+        // 이번 러닝에서 가장 많이 측정된 환경 확인
+        String finalEnvironment = getFinalEnvironment();
+
+        // 러닝 기록 DB 저장
         RunRecord record = saveRunRecord(elapsedTime);
 
-        //서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
-        //획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
-        RewardServer.requestRewards(record, rewards -> {
-            //이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
+        Log.d("ENV_COUNT",
+                "공원: " + parkCount +
+                        ", 숲: " + forestCount +
+                        ", 하천: " + riverCount +
+                        ", 호수: " + lakeCount);
+
+        Log.d("ENV_COUNT", "최종 환경: " + finalEnvironment);
+
+        // 서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
+        // 획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
+        RewardServer.requestRewards(record,finalEnvironment, rewards -> {
+
+            // 이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
             List<RewardServer.Reward> newRewards = saveRewards(rewards);
 
             Intent intent;
+
             if (newRewards.isEmpty()) {
                 intent = new Intent(RunningActivity.this, ResultActivity.class);
             } else {
@@ -341,10 +453,15 @@ public class RunningActivity extends AppCompatActivity {
                 CharacterRewardActivity.putRewards(intent, newRewards);
             }
 
-            //이동한 거리 전달
+            // 이동한 거리 전달
             intent.putExtra("distance", totalDistance / 1000);
-            //걸린 시간 전달
+
+            // 걸린 시간 전달
             intent.putExtra("elapsedTime", elapsedTime);
+
+            // 최종 환경 전달
+            intent.putExtra("finalEnvironment", finalEnvironment);
+
             // GPS 경로 전달
             double[] routeLatitude = new double[recordedPoints.size()];
             double[] routeLongitude = new double[recordedPoints.size()];
@@ -353,12 +470,13 @@ public class RunningActivity extends AppCompatActivity {
                 routeLatitude[i] = recordedPoints.get(i).getLatitude();
                 routeLongitude[i] = recordedPoints.get(i).getLongitude();
             }
+
             intent.putExtra("routeLatitude", routeLatitude);
             intent.putExtra("routeLongitude", routeLongitude);
 
             startActivity(intent);
 
-            //현재 화면 종료
+            // 현재 화면 종료
             finish();
         });
     }
