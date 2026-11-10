@@ -1,24 +1,33 @@
-import sqlite3
+import os
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+import pymysql
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-DB_PATH = "runcatch.db"
+# 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", "3306")),
+    "user": os.getenv("DB_USER", "runcatch"),
+    "password": os.getenv("DB_PASSWORD", "runcatch1234"),
+    "database": os.getenv("DB_NAME", "runcatch"),
+    "charset": "utf8mb4",
+    "cursorclass": pymysql.cursors.DictCursor,
+}
 EXP_PER_LEVEL = 5000
 
 # 테이블 구조를 바꾸면 올린다. DB의 버전이 더 낮으면 테이블을 지우고 새로 만든다 (개발 단계)
 # 2: 캐릭터를 앱의 14종(정수 id)으로, running_record를 앱 구조로 변경
-SCHEMA_VERSION = 2
+# 3: SQLite에서 MySQL로 변경
+SCHEMA_VERSION = 3
 
 app = FastAPI()
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return pymysql.connect(**DB_CONFIG)
 
 
 # 앱 RunCharacter.ALL과 같은 목록. character_id는 앱의 RunCharacter.id
@@ -57,56 +66,67 @@ CHARACTERS = [
 
 
 conn = get_db()
-if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
-    conn.execute("DROP TABLE IF EXISTS user_character")
-    conn.execute("DROP TABLE IF EXISTS character")
-    conn.execute("DROP TABLE IF EXISTS running_record")
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-# 앱 running_record와 같은 구조 (GPS 경로는 받지 않음)
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS running_record (
-        running_number INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id        TEXT    NOT NULL,
-        run_date       INTEGER NOT NULL,  -- 러닝 시작 시각 (epoch ms)
-        distance       REAL,              -- m
-        duration       REAL,              -- 초
-        pace           REAL,              -- 초/km
-        avg_speed      REAL,              -- km/h
-        max_speed      REAL               -- km/h
+with conn.cursor() as cur:
+    # MySQL에는 SQLite의 PRAGMA user_version이 없어서 버전을 테이블에 저장
+    cur.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT NOT NULL)")
+    cur.execute("SELECT version FROM schema_version")
+    row = cur.fetchone()
+    if row is None or row["version"] < SCHEMA_VERSION:
+        cur.execute("DROP TABLE IF EXISTS user_character")
+        cur.execute("DROP TABLE IF EXISTS `character`")
+        cur.execute("DROP TABLE IF EXISTS running_record")
+        cur.execute("DELETE FROM schema_version")
+        cur.execute("INSERT INTO schema_version (version) VALUES (%s)", (SCHEMA_VERSION,))
+    # 앱 running_record와 같은 구조 (GPS 경로는 받지 않음)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS running_record (
+            running_number INT          PRIMARY KEY AUTO_INCREMENT,
+            user_id        VARCHAR(100) NOT NULL,
+            run_date       BIGINT       NOT NULL,  -- 러닝 시작 시각 (epoch ms)
+            distance       DOUBLE,                 -- m
+            duration       DOUBLE,                 -- 초
+            pace           DOUBLE,                 -- 초/km
+            avg_speed      DOUBLE,                 -- km/h
+            max_speed      DOUBLE                  -- km/h
+        )
+    """)
+    # character, condition은 MySQL 예약어라서 ``로 감쌈
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS `character` (
+            character_id      INT          PRIMARY KEY,
+            name              VARCHAR(50)  NOT NULL,
+            emoji             VARCHAR(20)  NOT NULL,
+            category          VARCHAR(20)  NOT NULL,
+            `condition`       VARCHAR(100) NOT NULL,
+            hint              VARCHAR(200) NOT NULL,
+            description       VARCHAR(200) NOT NULL,
+            required_distance INT,
+            image_url         VARCHAR(500)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_character (
+            user_id      VARCHAR(100) NOT NULL,
+            character_id INT          NOT NULL,
+            level        INT          NOT NULL DEFAULT 1,
+            exp          INT          NOT NULL DEFAULT 0,
+            is_main      BOOLEAN      NOT NULL DEFAULT FALSE,
+            acquired_at  DATETIME     NOT NULL,
+            PRIMARY KEY (user_id, character_id),
+            FOREIGN KEY (character_id) REFERENCES `character` (character_id)
+        )
+    """)
+    # 캐릭터 정보를 고치면 서버 재시작 때 반영되도록 UPDATE
+    # (REPLACE는 행을 지웠다 다시 넣어서 user_character 외래 키와 부딪힘)
+    cur.executemany(
+        "INSERT INTO `character` "
+        "(character_id, name, emoji, category, `condition`, hint, description, required_distance) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE name = VALUES(name), emoji = VALUES(emoji), "
+        "category = VALUES(category), `condition` = VALUES(`condition`), hint = VALUES(hint), "
+        "description = VALUES(description), required_distance = VALUES(required_distance)",
+        CHARACTERS,
     )
-""")
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS character (
-        character_id      INTEGER PRIMARY KEY,
-        name              TEXT    NOT NULL,
-        emoji             TEXT    NOT NULL,
-        category          TEXT    NOT NULL,
-        condition         TEXT    NOT NULL,
-        hint              TEXT    NOT NULL,
-        description       TEXT    NOT NULL,
-        required_distance INTEGER,
-        image_url         TEXT
-    )
-""")
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS user_character (
-        user_id      TEXT    NOT NULL,
-        character_id INTEGER NOT NULL,
-        level        INTEGER NOT NULL DEFAULT 1,
-        exp          INTEGER NOT NULL DEFAULT 0,
-        is_main      INTEGER NOT NULL DEFAULT 0,
-        acquired_at  TEXT    NOT NULL,
-        PRIMARY KEY (user_id, character_id),
-        FOREIGN KEY (character_id) REFERENCES character (character_id)
-    )
-""")
-# 캐릭터 정보를 고치면 서버 재시작 때 반영되도록 REPLACE
-conn.executemany(
-    "INSERT OR REPLACE INTO character "
-    "(character_id, name, emoji, category, condition, hint, description, required_distance) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    CHARACTERS,
-)
 conn.commit()
 conn.close()
 
@@ -160,61 +180,63 @@ class DayDistance(BaseModel):
     distance: float
 
 
-def get_total_distance(conn, user_id):
-    row = conn.execute(
-        "SELECT COALESCE(SUM(distance), 0) AS total FROM running_record WHERE user_id = ?",
+def get_total_distance(cur, user_id):
+    cur.execute(
+        "SELECT COALESCE(SUM(distance), 0) AS total FROM running_record WHERE user_id = %s",
         (user_id,),
-    ).fetchone()
-    return row["total"]
+    )
+    return cur.fetchone()["total"]
 
 
-def get_owned_characters(conn, user_id):
-    rows = conn.execute(
+def get_owned_characters(cur, user_id):
+    cur.execute(
         "SELECT c.*, uc.level, uc.exp, uc.is_main, uc.acquired_at "
-        "FROM user_character uc JOIN character c ON c.character_id = uc.character_id "
-        "WHERE uc.user_id = ? ORDER BY uc.acquired_at",
+        "FROM user_character uc JOIN `character` c ON c.character_id = uc.character_id "
+        "WHERE uc.user_id = %s ORDER BY uc.acquired_at",
         (user_id,),
-    ).fetchall()
-    return [OwnedCharacter(**dict(row)) for row in rows]
+    )
+    return [OwnedCharacter(**row) for row in cur.fetchall()]
 
 
-def unlock_characters(conn, user_id):
+def unlock_characters(cur, user_id):
     # TODO: 지금은 누적 거리 캐릭터(required_distance 있음)만 판단. 장소·연속·리그는 추후
-    total = get_total_distance(conn, user_id)
-    rows = conn.execute(
-        "SELECT * FROM character WHERE required_distance IS NOT NULL "
-        "AND required_distance <= ? AND character_id NOT IN "
-        "(SELECT character_id FROM user_character WHERE user_id = ?) "
+    total = get_total_distance(cur, user_id)
+    cur.execute(
+        "SELECT * FROM `character` WHERE required_distance IS NOT NULL "
+        "AND required_distance <= %s AND character_id NOT IN "
+        "(SELECT character_id FROM user_character WHERE user_id = %s) "
         "ORDER BY required_distance",
         (total, user_id),
-    ).fetchall()
-    has_main = conn.execute(
-        "SELECT 1 FROM user_character WHERE user_id = ? AND is_main = 1",
+    )
+    rows = cur.fetchall()
+    cur.execute(
+        "SELECT 1 FROM user_character WHERE user_id = %s AND is_main = TRUE",
         (user_id,),
-    ).fetchone()
-    now = datetime.now().isoformat()
+    )
+    has_main = cur.fetchone() is not None
+    now = datetime.now().replace(microsecond=0)
     for row in rows:
-        is_main = 0 if has_main else 1
-        conn.execute(
+        cur.execute(
             "INSERT INTO user_character (user_id, character_id, is_main, acquired_at) "
-            "VALUES (?, ?, ?, ?)",
-            (user_id, row["character_id"], is_main, now),
+            "VALUES (%s, %s, %s, %s)",
+            (user_id, row["character_id"], not has_main, now),
         )
         has_main = True
-    return [Character(**dict(row)) for row in rows]
+    return [Character(**row) for row in rows]
 
 
-def add_exp_to_main(conn, user_id, distance):
-    row = conn.execute(
-        "SELECT character_id, exp FROM user_character WHERE user_id = ? AND is_main = 1",
+def add_exp_to_main(cur, user_id, distance):
+    cur.execute(
+        "SELECT character_id, exp FROM user_character WHERE user_id = %s AND is_main = TRUE",
         (user_id,),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     if row is None:
         return
     exp = row["exp"] + int(distance)
     level = exp // EXP_PER_LEVEL + 1
-    conn.execute(
-        "UPDATE user_character SET exp = ?, level = ? WHERE user_id = ? AND character_id = ?",
+    cur.execute(
+        "UPDATE user_character SET exp = %s, level = %s WHERE user_id = %s AND character_id = %s",
         (exp, level, user_id, row["character_id"]),
     )
 
@@ -228,22 +250,23 @@ def home():
 def create_run(run: RunCreate):
     run_date = run.run_date or int(datetime.now().timestamp() * 1000)
     conn = get_db()
-    cursor = conn.execute(
-        "INSERT INTO running_record (user_id, run_date, distance, duration, pace, "
-        "avg_speed, max_speed) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            run.user_id,
-            run_date,
-            run.distance,
-            run.duration,
-            run.pace,
-            run.avg_speed,
-            run.max_speed,
-        ),
-    )
-    running_number = cursor.lastrowid
-    add_exp_to_main(conn, run.user_id, run.distance)
-    new_characters = unlock_characters(conn, run.user_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO running_record (user_id, run_date, distance, duration, pace, "
+            "avg_speed, max_speed) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (
+                run.user_id,
+                run_date,
+                run.distance,
+                run.duration,
+                run.pace,
+                run.avg_speed,
+                run.max_speed,
+            ),
+        )
+        running_number = cur.lastrowid
+        add_exp_to_main(cur, run.user_id, run.distance)
+        new_characters = unlock_characters(cur, run.user_id)
     conn.commit()
     conn.close()
     run_data = run.model_dump()
@@ -258,39 +281,44 @@ def create_run(run: RunCreate):
 @app.get("/runs", response_model=list[Run])
 def get_runs(user_id: str):
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM running_record WHERE user_id = ? ORDER BY run_date DESC",
-        (user_id,),
-    ).fetchall()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM running_record WHERE user_id = %s ORDER BY run_date DESC",
+            (user_id,),
+        )
+        rows = cur.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return rows
 
 
 @app.get("/stats/{user_id}", response_model=Stats)
 def get_stats(user_id: str):
     conn = get_db()
-    row = conn.execute(
-        "SELECT COUNT(*) AS run_count, "
-        "COALESCE(SUM(distance), 0) AS total_distance, "
-        "COALESCE(SUM(duration), 0) AS total_duration "
-        "FROM running_record WHERE user_id = ?",
-        (user_id,),
-    ).fetchone()
-    unlock_characters(conn, user_id)
-    conn.commit()
-    owned = get_owned_characters(conn, user_id)
-    main_character = next((c for c in owned if c.is_main), None)
-    next_row = conn.execute(
-        "SELECT * FROM character WHERE required_distance > ? "
-        "ORDER BY required_distance LIMIT 1",
-        (row["total_distance"],),
-    ).fetchone()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS run_count, "
+            "COALESCE(SUM(distance), 0) AS total_distance, "
+            "COALESCE(SUM(duration), 0) AS total_duration "
+            "FROM running_record WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        unlock_characters(cur, user_id)
+        conn.commit()
+        owned = get_owned_characters(cur, user_id)
+        main_character = next((c for c in owned if c.is_main), None)
+        cur.execute(
+            "SELECT * FROM `character` WHERE required_distance > %s "
+            "ORDER BY required_distance LIMIT 1",
+            (row["total_distance"],),
+        )
+        next_row = cur.fetchone()
     conn.close()
     return Stats(
         user_id=user_id,
         main_character=main_character,
-        next_character=Character(**dict(next_row)) if next_row else None,
-        **dict(row),
+        next_character=Character(**next_row) if next_row else None,
+        **row,
     )
 
 
@@ -300,36 +328,41 @@ def get_weekly_stats(user_id: str):
     week_ago = today - timedelta(days=6)
     conn = get_db()
     week_ago_ms = int(datetime.combine(week_ago, datetime.min.time()).timestamp() * 1000)
-    # run_date(epoch ms)를 서버 로컬 시간 기준 날짜(YYYY-MM-DD)로 묶음
-    rows = conn.execute(
-        "SELECT date(run_date / 1000, 'unixepoch', 'localtime') AS day, "
-        "SUM(distance) AS distance "
-        "FROM running_record "
-        "WHERE user_id = ? AND run_date >= ? "
-        "GROUP BY day",
-        (user_id, week_ago_ms),
-    ).fetchall()
+    # run_date(epoch ms)를 MySQL 세션 시간대 기준 날짜로 묶음
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DATE(FROM_UNIXTIME(run_date / 1000)) AS day, "
+            "SUM(distance) AS distance "
+            "FROM running_record "
+            "WHERE user_id = %s AND run_date >= %s "
+            "GROUP BY day",
+            (user_id, week_ago_ms),
+        )
+        rows = cur.fetchall()
     conn.close()
     by_day = {row["day"]: row["distance"] for row in rows}
     result = []
     for i in range(7):
         day = week_ago + timedelta(days=i)
-        result.append(DayDistance(day=day, distance=by_day.get(day.isoformat(), 0)))
+        result.append(DayDistance(day=day, distance=by_day.get(day, 0)))
     return result
 
 
 @app.get("/characters", response_model=list[Character])
 def get_characters():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM character ORDER BY character_id").fetchall()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM `character` ORDER BY character_id")
+        rows = cur.fetchall()
     conn.close()
-    return [Character(**dict(row)) for row in rows]
+    return [Character(**row) for row in rows]
 
 
 @app.get("/users/{user_id}/characters", response_model=list[OwnedCharacter])
 def get_user_characters(user_id: str):
     conn = get_db()
-    owned = get_owned_characters(conn, user_id)
+    with conn.cursor() as cur:
+        owned = get_owned_characters(cur, user_id)
     conn.close()
     return owned
 
@@ -337,19 +370,20 @@ def get_user_characters(user_id: str):
 @app.put("/users/{user_id}/main-character/{character_id}", response_model=OwnedCharacter)
 def set_main_character(user_id: str, character_id: int):
     conn = get_db()
-    owned = conn.execute(
-        "SELECT 1 FROM user_character WHERE user_id = ? AND character_id = ?",
-        (user_id, character_id),
-    ).fetchone()
-    if owned is None:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Character not owned by user")
-    conn.execute("UPDATE user_character SET is_main = 0 WHERE user_id = ?", (user_id,))
-    conn.execute(
-        "UPDATE user_character SET is_main = 1 WHERE user_id = ? AND character_id = ?",
-        (user_id, character_id),
-    )
-    conn.commit()
-    result = next(c for c in get_owned_characters(conn, user_id) if c.is_main)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM user_character WHERE user_id = %s AND character_id = %s",
+            (user_id, character_id),
+        )
+        if cur.fetchone() is None:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Character not owned by user")
+        cur.execute("UPDATE user_character SET is_main = FALSE WHERE user_id = %s", (user_id,))
+        cur.execute(
+            "UPDATE user_character SET is_main = TRUE WHERE user_id = %s AND character_id = %s",
+            (user_id, character_id),
+        )
+        conn.commit()
+        result = next(c for c in get_owned_characters(cur, user_id) if c.is_main)
     conn.close()
     return result

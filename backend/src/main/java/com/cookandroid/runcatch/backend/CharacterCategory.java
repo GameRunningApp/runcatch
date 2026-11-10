@@ -1,4 +1,4 @@
-package com.cookandroid.runcatch;
+package com.cookandroid.runcatch.backend;
 
 public enum CharacterCategory {
 

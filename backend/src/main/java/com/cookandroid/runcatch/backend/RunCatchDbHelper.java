@@ -89,11 +89,19 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
 
         // TODO(로그인): 회원가입이 생기기 전까지 쓰는 임시 유저.
         // 처음에는 획득한 캐릭터가 없으므로 대표 캐릭터(character_id)도 비워 둔다 (NULL)
+        // my 페이지 캐릭터 상호작용을 위한 임시 캐릭터 추가
         ContentValues user = new ContentValues();
-        user.put("mail", "aaa@runcatch.com");
+        user.put("mail", "");
         user.put("user_id", CURRENT_USER_ID);
         user.put("password", "");
+        user.put("character_id", 15);
         db.insert(TABLE_USER, null, user);
+
+        ContentValues owned = new ContentValues();
+        owned.put("user_id", CURRENT_USER_ID);
+        owned.put("character_id", 15);
+        owned.put("acquired_date", System.currentTimeMillis());
+        db.insert(TABLE_USER_CHARACTER, null, owned);
     }
 
     @Override

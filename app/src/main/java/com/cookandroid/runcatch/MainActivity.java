@@ -11,6 +11,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.cookandroid.runcatch.backend.RunCatchDbHelper;
+import com.cookandroid.runcatch.backend.RunCharacter;
 import com.cookandroid.runcatch.backend.RunRecord;
 
 import java.text.SimpleDateFormat;

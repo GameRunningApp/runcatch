@@ -1,7 +1,22 @@
+````
 # RUN CATCH Backend
 
 FastAPI 서버. 러닝 기록, 통계, 캐릭터 데이터를 저장하고 앱에 제공합니다.
-DB는 현재 SQLite(`runcatch.db`, 서버 실행 시 자동 생성)이고, 이후 MySQL로 변경 예정입니다.
+DB는 MySQL을 사용합니다. 테이블은 서버 실행 시 자동으로 만들어집니다.
+
+## MySQL 준비 (처음 한 번)
+
+MySQL 8을 설치한 뒤, MySQL에 root로 접속해서 아래를 실행합니다.
+
+```sql
+CREATE DATABASE runcatch CHARACTER SET utf8mb4;
+CREATE USER 'runcatch'@'localhost' IDENTIFIED BY 'runcatch1234';
+GRANT ALL ON runcatch.* TO 'runcatch'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+접속 정보는 환경 변수로 바꿀 수 있습니다: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+(없으면 localhost:3306, runcatch / runcatch1234, DB 이름 runcatch)
 
 ## 실행 방법 (Windows)
 
@@ -22,7 +37,7 @@ Swagger(API 테스트): http://127.0.0.1:8000/docs
 - pace: 초/km, avg_speed·max_speed: km/h
 - GPS 경로는 서버로 보내지 않음 (앱 로컬 DB에만 저장)
 
-테이블 구조를 바꾸면 `main.py`의 `SCHEMA_VERSION`을 올린다. 서버 시작 시 DB 버전이 낮으면 테이블을 지우고 새로 만든다 (개발 단계).
+테이블 구조를 바꾸면 `main.py`의 `SCHEMA_VERSION`을 올린다. 서버 시작 시 DB 버전(`schema_version` 테이블)이 낮으면 테이블을 지우고 새로 만든다 (개발 단계).
 
 ## API
 
@@ -44,4 +59,4 @@ Swagger(API 테스트): http://127.0.0.1:8000/docs
 - 장소·연속·리그 캐릭터는 아직 서버에서 판단하지 않음 (`required_distance`가 null)
 - 처음 얻은 캐릭터가 자동으로 대표 캐릭터
 - 러닝 1m = 대표 캐릭터 경험치 1, 5000마다 레벨업
-- 레벨과 캐릭터는 서버에서 계산 (앱은 기록만 전송)
+- 레벨과 캐릭터는 서버에서 계산 (앱은 기록만 전송) 

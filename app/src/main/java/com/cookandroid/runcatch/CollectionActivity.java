@@ -13,7 +13,9 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.cookandroid.runcatch.backend.CharacterCategory;
 import com.cookandroid.runcatch.backend.RunCatchDbHelper;
+import com.cookandroid.runcatch.backend.RunCharacter;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.List;

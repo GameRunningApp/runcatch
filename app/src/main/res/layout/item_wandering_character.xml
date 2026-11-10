@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- My 화면에서 돌아다니는 캐릭터 한 마리. 위치를 잡기 전까지는 숨겨 둔다 -->
+<TextView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:maxLines="1"
+    android:textColor="@color/text_primary"
+    android:textSize="64sp"
+    android:visibility="invisible" />
