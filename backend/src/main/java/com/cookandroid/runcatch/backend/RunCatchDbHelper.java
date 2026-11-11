@@ -53,6 +53,14 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
     }
 
     @Override
+    public void onDowngrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        // 더 높은 DB 버전의 브랜치로 실행한 뒤 낮은 버전의 브랜치로 돌아오면
+        // 기본 동작은 DB를 열지 못해 로그인 · 기록 저장이 모두 실패한다.
+        // 개발 단계라 버전을 올릴 때와 똑같이 지우고 새로 만든다.
+        onUpgrade(db, oldVersion, newVersion);
+    }
+
+    @Override
     public void onCreate(SQLiteDatabase db) {
         // user_id는 닉네임. running_record가 FK로 참조하므로 UNIQUE여야 함
         db.execSQL("CREATE TABLE " + TABLE_USER + " ("
