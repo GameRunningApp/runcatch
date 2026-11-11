@@ -398,6 +398,8 @@ public class RunningActivity extends AppCompatActivity {
         RewardServer.requestRewards(record, rewards -> {
             //이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
             List<RewardServer.Reward> newRewards = saveRewards(rewards);
+            //대표 캐릭터에 이번 러닝 경험치 적용 (캐릭터 저장 뒤에 해야 첫 캐릭터도 경험치를 받음)
+            ExpGain expGain = applyExp(record);
 
             Intent intent;
             if (newRewards.isEmpty()) {
@@ -421,12 +423,40 @@ public class RunningActivity extends AppCompatActivity {
             }
             intent.putExtra("routeLatitude", routeLatitude);
             intent.putExtra("routeLongitude", routeLongitude);
+            //경험치 전달
+            expGain.putInto(intent);
 
             startActivity(intent);
 
             //현재 화면 종료
             finish();
         });
+    }
+
+    /**
+     * 이번 러닝 경험치를 계산해서 대표 캐릭터에 더한다.
+     * 대표 캐릭터가 없거나 기록 저장에 실패했으면 계산만 하고 저장하지 않는다.
+     */
+    private ExpGain applyExp(RunRecord record) {
+        RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
+        String userId = RunCatchDbHelper.CURRENT_USER_ID;
+
+        int streakDays = ExpRules.streakDays(
+                db.getRunDates(userId), record.runDate, java.util.TimeZone.getDefault());
+        // TODO(개인 목표): 목표 설정 기능이 생기면 달성 여부를 넘긴다 (+10)
+        boolean goalAchieved = false;
+        ExpGain gain = ExpGain.calculate(record.distance, streakDays, goalAchieved);
+
+        int characterId = db.getCharacterId(userId);
+        if (characterId == -1 || record.runningNumber == -1) {
+            return gain;
+        }
+        int before = db.getCharacterExp(userId, characterId);
+        if (before == -1) {
+            return gain;
+        }
+        int after = db.addCharacterExp(userId, characterId, gain.total());
+        return gain.appliedTo(characterId, before, after);
     }
 
     /** 획득한 캐릭터를 user_character에 저장. 새로 저장된 것만 돌려줌 */

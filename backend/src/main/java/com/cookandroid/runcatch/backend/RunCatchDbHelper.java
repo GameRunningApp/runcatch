@@ -21,7 +21,8 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "runcatch.db";
     // 3: 도감 v2 캐릭터 id로 변경
     // 4: 처음 시작할 때 캐릭터 없이 시작 (토끼 기본 지급 제거)
-    private static final int DB_VERSION = 4;
+    // 5: user_character에 exp(누적 경험치) 추가. 4에서 올라올 때는 기존 데이터를 유지한다
+    private static final int DB_VERSION = 5;
 
     // TODO(로그인): 닉네임 설정이 붙으면 로그인한 유저의 user_id로 바꾼다
     public static final String CURRENT_USER_ID = "aaa";
@@ -85,6 +86,7 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
                 + "(user_id) ON UPDATE CASCADE ON DELETE CASCADE, "
                 + "character_id INTEGER NOT NULL, "
                 + "acquired_date INTEGER NOT NULL, "  // 획득 시각 (epoch ms)
+                + "exp INTEGER NOT NULL DEFAULT 0, "  // 누적 경험치. 레벨은 ExpRules로 계산
                 + "PRIMARY KEY (user_id, character_id))");
 
         // TODO(로그인): 회원가입이 생기기 전까지 쓰는 임시 유저.
@@ -106,6 +108,12 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        // 4 → 5: 경험치 컬럼만 추가 (러닝 기록 · 캐릭터 유지)
+        if (oldVersion == 4 && newVersion == 5) {
+            db.execSQL("ALTER TABLE " + TABLE_USER_CHARACTER
+                    + " ADD COLUMN exp INTEGER NOT NULL DEFAULT 0");
+            return;
+        }
         // 개발 단계라 기존 데이터를 지우고 새로 만든다
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_USER_CHARACTER);
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_GPS_POINT);
@@ -179,6 +187,19 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
     }
 
     /**
+     * 캐릭터에 경험치를 더한다.
+     *
+     * @return 더한 뒤의 누적 경험치. 가지고 있지 않은 캐릭터면 -1
+     */
+    public int addCharacterExp(String userId, int characterId, int amount) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.execSQL("UPDATE " + TABLE_USER_CHARACTER + " SET exp = exp + ? "
+                        + "WHERE user_id = ? AND character_id = ?",
+                new Object[]{amount, userId, characterId});
+        return getCharacterExp(userId, characterId);
+    }
+
+    /**
      * 로그인 화면에서 입력한 이메일/비밀번호를 user 테이블에 저장.
      * TODO(로그인): 회원가입이 생기기 전까지는 임시 유저(userId) 행의 mail/password를 덮어쓴다
      *
@@ -218,6 +239,15 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
                 "SELECT character_id FROM " + TABLE_USER + " WHERE user_id = ?",
                 new String[]{userId})) {
             return (c.moveToFirst() && !c.isNull(0)) ? c.getInt(0) : -1;
+        }
+    }
+
+    /** 캐릭터의 누적 경험치. 가지고 있지 않은 캐릭터면 -1 */
+    public int getCharacterExp(String userId, int characterId) {
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT exp FROM " + TABLE_USER_CHARACTER + " WHERE user_id = ? AND character_id = ?",
+                new String[]{userId, String.valueOf(characterId)})) {
+            return c.moveToFirst() ? c.getInt(0) : -1;
         }
     }
 

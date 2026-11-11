@@ -138,6 +138,8 @@ public class CharacterRewardActivity extends BaseActivity {
 
         intent.putExtra("routeLatitude", routeLatitude);
         intent.putExtra("routeLongitude", routeLongitude);
+        // 경험치 정보 전달
+        ExpGain.copy(getIntent(), intent);
         startActivity(intent);
         finish();
     }
