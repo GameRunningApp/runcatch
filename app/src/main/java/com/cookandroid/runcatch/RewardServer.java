@@ -31,8 +31,12 @@ public class RewardServer {
         void onResult(List<Reward> rewards);
     }
 
-    public static void requestRewards(RunRecord record, Callback callback) {
+    public static void requestRewards(RunRecord record, String finalEnvironment, Callback callback) {
         List<Reward> rewards = new ArrayList<>();
+
+        // 전달받은 최종 러닝 환경 확인
+        android.util.Log.d("ENV_REWARD",
+                "캐릭터 획득 판정에 전달된 환경: " + finalEnvironment);
 
         // 임시 하드코딩: 2Km 이상 달리면 캐릭터 2개 획득 (여러 개 획득 화면 확인용)
         if (record.distance >= 2000) {
