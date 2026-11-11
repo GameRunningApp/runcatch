@@ -160,6 +160,90 @@
 
         </LinearLayout>
 
+        <!-- 대표 캐릭터 레벨 진행 -->
+        <LinearLayout
+            android:id="@+id/resultLevelBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:orientation="vertical"
+            android:background="#E6F0FF"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/resultLevelCharacterText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🐥 캐릭터  Lv.1"
+                    android:textColor="#26334B"
+                    android:textStyle="bold"
+                    android:textSize="15sp" />
+
+                <!-- 레벨이 올랐을 때만 보임 -->
+                <TextView
+                    android:id="@+id/resultLevelUpText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_primary_button"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:text="LEVEL UP!"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/resultLevelProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="8dp"
+                android:max="100"
+                android:progressDrawable="@drawable/progress_next_character" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <!-- 경험치 내역 (러닝 완료 · 거리 · 연속 러닝) -->
+                <TextView
+                    android:id="@+id/resultExpDetailText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="러닝 완료 +20"
+                    android:textColor="#8795A8"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/resultLevelExpText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 / 50 XP"
+                    android:textColor="#8795A8"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- 3. 하단 버튼 영역 -->

@@ -1,11 +1,18 @@
 package com.cookandroid.runcatch;
 
+import android.animation.ObjectAnimator;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+
+import com.cookandroid.runcatch.backend.RunCharacter;
 
 import org.maplibre.android.geometry.LatLng;
 import org.maplibre.android.maps.MapView;
@@ -73,8 +80,6 @@ public class ResultActivity extends AppCompatActivity {
 
         float distance = getIntent().getFloatExtra("distance", 0);
         long elapsedTime = getIntent().getLongExtra("elapsedTime", 0);
-        //임시 경험치 획득량
-        int earnedXP = 50;
         // 러닝 화면에서 전달받은 GPS 경로
         double[] routeLatitude =
                 getIntent().getDoubleArrayExtra("routeLatitude");
@@ -119,7 +124,80 @@ public class ResultActivity extends AppCompatActivity {
         resultPaceText.setText(String.format(java.util.Locale.getDefault(),
                 "%d:%02d /Km", paceMinutes, paceSeconds));
         //경험치 표시
-        resultXpText.setText(earnedXP + "XP");
+        bindExp(ExpGain.from(getIntent()));
+    }
+
+    /** 이번 러닝으로 얻은 경험치와 대표 캐릭터 레벨 진행 표시 */
+    private void bindExp(ExpGain gain) {
+        View levelBox = findViewById(R.id.resultLevelBox);
+        if (gain == null) {
+            resultXpText.setText("0 XP");
+            levelBox.setVisibility(View.GONE);
+            return;
+        }
+        resultXpText.setText("+" + gain.total() + " XP");
+
+        TextView characterText = findViewById(R.id.resultLevelCharacterText);
+        TextView levelUpText = findViewById(R.id.resultLevelUpText);
+        ProgressBar levelProgress = findViewById(R.id.resultLevelProgress);
+        TextView expDetailText = findViewById(R.id.resultExpDetailText);
+        TextView levelExpText = findViewById(R.id.resultLevelExpText);
+
+        expDetailText.setText(expDetail(gain));
+
+        RunCharacter character = gain.hasCharacter() ? RunCharacter.findById(gain.characterId) : null;
+        if (character == null) {
+            // 아직 캐릭터가 없으면 경험치를 쌓을 대표 캐릭터가 없음
+            characterText.setText("첫 캐릭터를 얻으면 경험치가 쌓여요");
+            levelProgress.setVisibility(View.GONE);
+            levelExpText.setVisibility(View.GONE);
+            return;
+        }
+
+        int level = gain.levelAfter();
+        int need = ExpRules.expToNextLevel(level);
+        int inLevel = ExpRules.expInLevel(gain.expAfter);
+        characterText.setText(character.emoji + " " + character.name + "  Lv." + level);
+        levelExpText.setText(inLevel + " / " + need + " XP");
+
+        // 진행바: 레벨이 그대로면 이전 위치에서, 레벨업이면 0에서 채워진다
+        int toPercent = inLevel * 100 / need;
+        int fromPercent = gain.leveledUp() ? 0
+                : ExpRules.expInLevel(gain.expBefore) * 100 / need;
+        levelProgress.setProgress(fromPercent);
+        ObjectAnimator bar = ObjectAnimator.ofInt(levelProgress, "progress", fromPercent, toPercent);
+        bar.setDuration(800);
+        bar.setStartDelay(300);
+        bar.setInterpolator(new DecelerateInterpolator());
+        bar.start();
+
+        if (gain.leveledUp()) {
+            levelUpText.setText(gain.levelAfter() - gain.levelBefore() > 1
+                    ? "LEVEL UP! ×" + (gain.levelAfter() - gain.levelBefore())
+                    : "LEVEL UP!");
+            levelUpText.setVisibility(View.VISIBLE);
+            // 캐릭터 획득 화면과 같은 통통 튀는 연출
+            levelUpText.setScaleX(0f);
+            levelUpText.setScaleY(0f);
+            levelUpText.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(600)
+                    .setStartDelay(900)
+                    .setInterpolator(new OvershootInterpolator(2f))
+                    .start();
+        }
+    }
+
+    /** 예: "러닝 완료 +20 · 거리 +12 · 연속 2일 +10" */
+    private String expDetail(ExpGain gain) {
+        StringBuilder sb = new StringBuilder("러닝 완료 +" + gain.runExp);
+        if (gain.distanceExp > 0) sb.append(" · 거리 +").append(gain.distanceExp);
+        if (gain.goalExp > 0) sb.append(" · 목표 +").append(gain.goalExp);
+        if (gain.streakExp > 0) {
+            sb.append(" · 연속 ").append(gain.streakDays).append("일 +").append(gain.streakExp);
+        }
+        return sb.toString();
     }
 
     //화면이 재생성되는 상황에서도 지도 상태를 저장하는 메서드
