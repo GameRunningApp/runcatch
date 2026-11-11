@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 커뮤니티 탭(피드 · 월간 리그 · 레이드) 바깥 배경 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/header_background" />
+    <corners android:radius="14dp" />
+</shape>

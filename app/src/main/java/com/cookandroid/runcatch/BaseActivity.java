@@ -13,7 +13,7 @@ import androidx.core.view.WindowInsetsCompat;
 
 /**
  * 여러 화면에서 공통으로 쓰는 기능을 모아 둔 부모 액티비티.
- * MainActivity, RecordActivity, CollectionActivity, MyActivity가 이 클래스를 상속받는다.
+ * MainActivity, RecordActivity, CollectionActivity, CommunityActivity, MyActivity가 이 클래스를 상속받는다.
  */
 public abstract class BaseActivity extends AppCompatActivity {
 
@@ -37,7 +37,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     }
 
     /**
-     * 하단 내비게이션 버튼 4개에 클릭 동작을 연결.
+     * 하단 내비게이션 버튼 5개에 클릭 동작을 연결.
      *
      * @param currentNavButtonId 현재 화면에 해당하는 버튼 ID (눌러도 아무 동작 안 함)
      */
@@ -45,6 +45,7 @@ public abstract class BaseActivity extends AppCompatActivity {
         bindNavButton(R.id.homeNavButton, MainActivity.class, currentNavButtonId);
         bindNavButton(R.id.recordNavButton, RecordActivity.class, currentNavButtonId);
         bindNavButton(R.id.collectionNavButton, CollectionActivity.class, currentNavButtonId);
+        bindNavButton(R.id.communityNavButton, CommunityActivity.class, currentNavButtonId);
         bindNavButton(R.id.myNavButton, MyActivity.class, currentNavButtonId);
     }
 
