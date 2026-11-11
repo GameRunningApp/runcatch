@@ -1,8 +1,6 @@
-
 package com.cookandroid.runcatch;
 
 import android.os.Bundle;
-import android.util.Log;
 import android.widget.Toast;
 import android.widget.Button;
 
@@ -24,6 +22,7 @@ import com.google.android.gms.location.Priority;
 
 import org.maplibre.android.maps.MapLibreMap;
 import org.maplibre.android.maps.MapView;
+import org.maplibre.android.maps.OnMapReadyCallback;
 import org.maplibre.android.geometry.LatLng;
 import org.maplibre.android.camera.CameraUpdateFactory;
 
@@ -41,6 +40,16 @@ import com.cookandroid.runcatch.backend.GpsPoint;
 import com.cookandroid.runcatch.backend.RunCatchDbHelper;
 import com.cookandroid.runcatch.backend.RunRecord;
 
+// [추가] 서비스 연결, 화면 갱신, 알림 권한 확인에 필요한 import.
+import android.content.ComponentName;
+import android.content.ServiceConnection;
+import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Build;
+import android.view.View;
+import java.util.Locale;
+
 public class RunningActivity extends AppCompatActivity {
     private Button btnPause_Resume;
     private Button btnStop;
@@ -56,14 +65,7 @@ public class RunningActivity extends AppCompatActivity {
     private List<LatLng> routePoints = new ArrayList<>();
     // 지도에 표시할 러닝 경로 선
     private Polyline runningRoute;
-
-    // 사전 저장 환경 데이터
-    private ArrayList<EnvironmentFeature> environmentFeatures;
-    // 환경별 GPS 좌표 카운트
-    private int parkCount = 0;
-    private int forestCount = 0;
-    private int riverCount = 0;
-    private int lakeCount = 0;
+    private boolean isFirstLocation = true;
 
     //Timer
     private Chronometer chronometer;
@@ -81,26 +83,51 @@ public class RunningActivity extends AppCompatActivity {
 
     //DB 저장용
     // 지도 경로(routePoints)는 일시정지마다 새로 만들어지므로, 저장할 좌표는 따로 모음 (러닝 중인 좌표만)
-    private List<LatLng> recordedPoints = new ArrayList<>();
+    private final List<LatLng> recordedPoints = new ArrayList<>();
     private float maxSpeed = 0; // km/h
     private long runStartTime;  // 러닝 시작 시각 (epoch ms)
 
+    // [추가] 화면은 서비스의 값을 표시하고, 실제 기록은 서비스가 관리합니다.
+    private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 101;
+    private TextView titleText;
+
+    // [추가] 중복 종료 방지, 서비스 연결 여부, 화면 활성 여부,
+    // 위치 권한 확인 여부, 서비스 시작 요청 여부.
+    private boolean finishingRun;
+    private boolean bound;
+    private boolean resumed;
+    private boolean permissionsReady;
+    private boolean startRequested;
+
+    // [추가] 같은 오류 안내 반복 및 불필요한 경로 재그리기 방지.
+    private String lastError;
+    private int drawnVersion = -1;
+    private final List<Polyline> serviceRouteLines = new ArrayList<>();
+
+    private final Handler serviceHandler =
+            new Handler(Looper.getMainLooper());
+
+    private final Runnable serviceRefresh = new Runnable() {
+        @Override
+        public void run() {
+            render();
+
+            // [추가] 화면이 보이는 동안만 1초마다 화면 갱신.
+            if (resumed) {
+                serviceHandler.postDelayed(this, 1000);
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
 
         // MapLibre 초기화
         org.maplibre.android.MapLibre.getInstance(this);
 
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_running);
-
-        // 사전 저장 환경 데이터 불러오기
-        environmentFeatures = EnvironmentDataLoader.load(this);
-
-        Log.d(
-                "ENV_TEST",
-                "불러온 환경 데이터 개수: " + environmentFeatures.size()
-        );
 
         //뷰 설정
         btnPause_Resume = findViewById(R.id.btnPause);
@@ -109,6 +136,20 @@ public class RunningActivity extends AppCompatActivity {
         runningDistanceText = findViewById(R.id.tvDistanceText);
         runningPaceText = findViewById(R.id.tvPace);
         runningPaceText.setText("--'--\"/km");
+
+        // [추가] 서비스 준비 전에는 버튼 조작 방지.
+        titleText = findViewById(R.id.tvTitle);
+        btnPause_Resume.setVisibility(View.VISIBLE);
+        btnPause_Resume.setEnabled(false);
+        btnStop.setEnabled(false);
+
+        // [추가] 화면 재생성 시 중복 시작/종료 방지.
+        if (savedInstanceState != null) {
+            startRequested =
+                    savedInstanceState.getBoolean("serviceStartRequested");
+            finishingRun =
+                    savedInstanceState.getBoolean("finishingRun");
+        }
 
         // 지도 화면 연결
         mapView = findViewById(R.id.mapPlaceholder);
@@ -121,6 +162,10 @@ public class RunningActivity extends AppCompatActivity {
                     "https://tiles.openfreemap.org/styles/liberty",
                     style -> {
                         isMapStyleLoaded = true;
+                        // [추가] 지도 로딩 전에 수신한 경로도 복원합니다.
+                        drawnVersion = -1;
+                        render();
+
                         android.util.Log.d(
                                 "RUNCATCH_MAP",
                                 "지도 스타일 로드 성공"
@@ -179,12 +224,8 @@ public class RunningActivity extends AppCompatActivity {
                     }
                     // 거리 계산은 러닝 중에만 수행
                     if (!isPaused) {
+                        // 저장용 좌표와 최고 속도 기록
                         recordedPoints.add(currentPosition);
-                        // 현재 GPS 좌표가 포함되는 환경 카운트
-                        countEnvironmentAtLocation(
-                                location.getLatitude(),
-                                location.getLongitude()
-                        );
                         if (location.hasSpeed()) {
                             maxSpeed = Math.max(maxSpeed, location.getSpeed() * 3.6f);
                         }
@@ -212,28 +253,33 @@ public class RunningActivity extends AppCompatActivity {
         btnPause_Resume.setOnClickListener(v -> Pause_Resume());
         btnStop.setOnClickListener(v -> StopRunning());
 
-        startTimer(); // 화면 들어오자마자 바로 타이머 시작
+        // [수정] 타이머의 기준은 서비스가 관리합니다.
+        startTimer();
 
         // GPS 권한 확인
         checkPermission_Start();
     }
 
     private void startTimer() {
-        runStartTime = System.currentTimeMillis();
-        chronometer.setBase(SystemClock.elapsedRealtime());
-        chronometer.setOnChronometerTickListener(
-                chronometer -> updatePace()
-        );
-        chronometer.start();
+        // [수정] 화면 생성/갱신 때 러닝 시작 시각을 초기화하지 않습니다.
+        chronometer.setOnChronometerTickListener(chronometer -> updatePace());
+        if (service == null) {
+            chronometer.stop();
+            chronometer.setBase(SystemClock.elapsedRealtime());
+            return;
+        }
+        runStartTime = service.getRunStartTime();
+        pauseOffset = service.getElapsedMillis();
+        chronometer.setBase(SystemClock.elapsedRealtime() - pauseOffset);
+        if (service.isActive() && !service.isPaused()) chronometer.start();
+        else chronometer.stop();
     }
-
     private boolean hasLocationPermission() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED
                 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED;
     }
-
     private void updatePace() {
         if (totalDistance < 10) {
             runningPaceText.setText("--'--\"/km");
@@ -265,7 +311,6 @@ public class RunningActivity extends AppCompatActivity {
                 )
         );
     }
-
     private void checkPermission_Start() {
         if (!hasLocationPermission()) {
             ActivityCompat.requestPermissions(
@@ -280,20 +325,16 @@ public class RunningActivity extends AppCompatActivity {
         }
         startLocationUpdates();
     }
-
     private void startLocationUpdates() {
         if (!hasLocationPermission()) return;
-        fusedLocationProviderClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                getMainLooper()
-        );
+        // [수정] Activity와 서비스가 GPS를 중복 수신하지 않도록 서비스만 시작합니다.
+        permissionsReady = true;
+        maybeStart();
     }
-
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+                                           @NonNull int[]grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
@@ -304,148 +345,61 @@ public class RunningActivity extends AppCompatActivity {
             }
         }
     }
-
     private void Pause_Resume() {
-        if (!isPaused) {
-            // 러닝 일시정지
-            pauseOffset =
-                    SystemClock.elapsedRealtime()
-                            - chronometer.getBase();
-            chronometer.stop();
-            isPaused = true;
-            btnPause_Resume.setText("계속하기");
-        } else {
-            // 러닝 재개
-            chronometer.setBase(
-                    SystemClock.elapsedRealtime() - pauseOffset
-            );
-            chronometer.start();
-            isPaused = false;
-
-            btnPause_Resume.setText("일시정지");
-        }
-        // 상태가 바뀌면 새로운 경로 구간 시작
-        LatLng lastPosition = null;
-        if (previousLocation != null) {
-            lastPosition = new LatLng(
-                    previousLocation.getLatitude(),
-                    previousLocation.getLongitude()
-            );
-        }
-        routePoints = new ArrayList<>();
-        // 이전 구간의 마지막 위치를 새 구간의 시작점으로 사용
-        if (lastPosition != null) {
-            routePoints.add(lastPosition);
-        }
-        runningRoute = null;
-        previousLocation = null;
+        // [수정] 알림 버튼과 화면 버튼이 동일한 서비스 상태를 변경합니다.
+        if (service == null || !service.isActive() || finishingRun) return;
+        if (service.isPaused()) service.resumeRun();
+        else service.pauseRun();
+        render();
     }
-
-    // GPS 좌표가 포함된 환경의 카운트를 증가시킨다.
-    private void countEnvironmentAtLocation(double latitude, double longitude) {
-
-        // 해당 GPS 좌표가 포함되는 환경 종류 확인
-        java.util.Set<String> matchedCategories =
-                EnvironmentMatcher.findMatchedCategories(
-                        latitude,
-                        longitude,
-                        environmentFeatures
-                );
-
-        // 환경별 카운트 증가
-        if (matchedCategories.contains("PARK")) {
-            parkCount++;
-        }
-
-        if (matchedCategories.contains("FOREST")) {
-            forestCount++;
-        }
-
-        if (matchedCategories.contains("RIVER")) {
-            riverCount++;
-        }
-
-        if (matchedCategories.contains("LAKE")) {
-            lakeCount++;
-        }
-
-        Log.d(
-                "ENV_COUNT",
-                "공원: " + parkCount
-                        + ", 숲: " + forestCount
-                        + ", 하천: " + riverCount
-                        + ", 호수: " + lakeCount
-        );
-    }
-    // 러닝 종료 시 가장 많이 기록된 환경 판정
-    private String getFinalEnvironment() {
-
-        // 모든 환경 카운트가 0이면 도심
-        if (parkCount == 0
-                && forestCount == 0
-                && riverCount == 0
-                && lakeCount == 0) {
-
-            return "CITY";
-        }
-
-        // 가장 높은 카운트 찾기
-        int maxCount = Math.max(
-                Math.max(parkCount, forestCount),
-                Math.max(riverCount, lakeCount)
-        );
-
-        // 가장 많이 기록된 환경 반환
-        if (parkCount == maxCount) {
-            return "PARK";
-        }
-
-        if (forestCount == maxCount) {
-            return "FOREST";
-        }
-
-        if (riverCount == maxCount) {
-            return "RIVER";
-        }
-
-        return "LAKE";
-    }
-
     private void StopRunning() {
+        // [추가] 기록을 먼저 일시정지하고 마지막 좌표까지
+        // 기존 저장용 변수에 옮깁니다.
+        if (service == null || !service.isActive() || finishingRun) return;
+
+        service.pauseRun();
+        render();
+
+        recordedPoints.clear();
+
+        for (List<Location> segment : service.getRoute()) {
+            for (Location point : segment) {
+                recordedPoints.add(
+                        new LatLng(
+                                point.getLatitude(),
+                                point.getLongitude()
+                        )
+                );
+            }
+        }
+        maxSpeed = service.getMaxSpeed();
+        finishingRun = true;
+        btnPause_Resume.setEnabled(false);
         long elapsedTime = isPaused ?
                 pauseOffset : SystemClock.elapsedRealtime() - chronometer.getBase();
-
         chronometer.stop();
-
-        // GPS 위치 측정 종료
+        //Gps 위치 측정 종료
         fusedLocationProviderClient.removeLocationUpdates(locationCallback);
-
-        // 중복 저장 방지
+        //중복 저장 방지
         btnStop.setEnabled(false);
 
-        // 이번 러닝에서 가장 많이 측정된 환경 확인
-        String finalEnvironment = getFinalEnvironment();
-
-        // 러닝 기록 DB 저장
+        //러닝 기록 DB 저장
         RunRecord record = saveRunRecord(elapsedTime);
+        // [추가] 저장 실패 시 일시정지 상태를 유지해 다시 저장할 수 있게 합니다.
+        if (record.runningNumber == -1) {
+            finishingRun = false;
+            render();
+            return;
+        }
+        service.finishRun();
 
-        Log.d("ENV_COUNT",
-                "공원: " + parkCount +
-                        ", 숲: " + forestCount +
-                        ", 하천: " + riverCount +
-                        ", 호수: " + lakeCount);
-
-        Log.d("ENV_COUNT", "최종 환경: " + finalEnvironment);
-
-        // 서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
-        // 획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
-        RewardServer.requestRewards(record,finalEnvironment, rewards -> {
-
-            // 이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
+        //서버에 러닝 기록을 넘겨서 캐릭터 획득 여부를 받음
+        //획득한 캐릭터가 있으면 캐릭터 획득 화면, 없으면 바로 결과 화면으로
+        RewardServer.requestRewards(record, rewards -> {
+            //이미 가진 캐릭터는 빼고 새로 획득한 캐릭터만 저장/표시
             List<RewardServer.Reward> newRewards = saveRewards(rewards);
 
             Intent intent;
-
             if (newRewards.isEmpty()) {
                 intent = new Intent(RunningActivity.this, ResultActivity.class);
             } else {
@@ -453,15 +407,10 @@ public class RunningActivity extends AppCompatActivity {
                 CharacterRewardActivity.putRewards(intent, newRewards);
             }
 
-            // 이동한 거리 전달
+            //이동한 거리 전달
             intent.putExtra("distance", totalDistance / 1000);
-
-            // 걸린 시간 전달
+            //걸린 시간 전달
             intent.putExtra("elapsedTime", elapsedTime);
-
-            // 최종 환경 전달
-            intent.putExtra("finalEnvironment", finalEnvironment);
-
             // GPS 경로 전달
             double[] routeLatitude = new double[recordedPoints.size()];
             double[] routeLongitude = new double[recordedPoints.size()];
@@ -470,13 +419,12 @@ public class RunningActivity extends AppCompatActivity {
                 routeLatitude[i] = recordedPoints.get(i).getLatitude();
                 routeLongitude[i] = recordedPoints.get(i).getLongitude();
             }
-
             intent.putExtra("routeLatitude", routeLatitude);
             intent.putExtra("routeLongitude", routeLongitude);
 
             startActivity(intent);
 
-            // 현재 화면 종료
+            //현재 화면 종료
             finish();
         });
     }
@@ -523,22 +471,44 @@ public class RunningActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         mapView.onStart();
+        // [추가] 화면과 서비스 연결.
+        // 시작된 서비스는 화면 연결이 끊겨도 GPS 기록을 계속합니다.
+        if (!bound) {
+            bound = bindService(
+                    new Intent(this, RunningService.class),
+                    connection,
+                    BIND_AUTO_CREATE
+            );
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         mapView.onResume();
+        // [추가] 최초 서비스 시작은 화면이 보이고 위치 권한이 있을 때만 실행합니다.
+        resumed = true;
+        permissionsReady = hasLocationPermission();
+        maybeStart();
+        serviceHandler.removeCallbacks(serviceRefresh);
+        serviceHandler.post(serviceRefresh);
     }
 
     @Override
     protected void onPause() {
+        // [추가] 화면 갱신만 멈추며 서비스의 위치 수신은 유지합니다.
+        resumed = false;
+        serviceHandler.removeCallbacks(serviceRefresh);
+        chronometer.stop();
         mapView.onPause();
         super.onPause();
     }
 
     @Override
     protected void onStop() {
+        // [추가] 화면과 서비스의 연결만 해제하여 백그라운드 기록을 유지합니다.
+        if (bound) { unbindService(connection); bound = false; }
+        service = null; // 화면 연결만 해제하고 서비스는 계속 실행합니다.
         mapView.onStop();
         super.onStop();
     }
@@ -559,5 +529,219 @@ public class RunningActivity extends AppCompatActivity {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         mapView.onSaveInstanceState(outState);
+        // [추가] 화면 재생성 시 동일 러닝을 새로 시작하지 않습니다.
+        outState.putBoolean("serviceStartRequested", startRequested);
+        outState.putBoolean("finishingRun", finishingRun);
+    }
+
+    private RunningService service;
+    // [추가] 알림을 눌러 기존 러닝 화면으로 돌아왔을 때 최신 상태를 표시합니다.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        render();
+    }
+
+    // [추가] 권한, 화면 상태, 중복 시작을 확인한 뒤 서비스 시작.
+    private void maybeStart() {
+        if (!resumed
+                || !permissionsReady
+                || service == null
+                || finishingRun) {
+            return;
+        }
+
+        if (service.isActive()) {
+            startRequested = true;
+            return;
+        }
+
+        if (startRequested
+                || getIntent().getBooleanExtra("from_notification", false)) {
+            titleText.setText(
+                    "진행 중인 러닝이 없습니다. 홈에서 다시 시작해 주세요"
+            );
+            return;
+        }
+
+        try {
+            ContextCompat.startForegroundService(
+                    this,
+                    new Intent(this, RunningService.class)
+                            .setAction(RunningService.START)
+            );
+
+            startRequested = true;
+
+            // [추가] 알림 허용 여부와 관계없이 GPS 기록은 시작.
+            if (Build.VERSION.SDK_INT >= 33
+                    && ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{
+                                Manifest.permission.POST_NOTIFICATIONS
+                        },
+                        NOTIFICATION_PERMISSION_REQUEST_CODE
+                );
+            }
+        } catch (RuntimeException error) {
+            titleText.setText("러닝 서비스를 시작하지 못했습니다");
+
+            Toast.makeText(
+                    this,
+                    "위치 권한과 위치 설정을 확인하고 다시 시작해 주세요",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    // [추가] 서비스가 백그라운드에서 모은 경로를 기존 지도 변수로 표시.
+    private void drawRoute() {
+        if (service == null
+                || !isMapStyleLoaded
+                || mapLibreMap == null) {
+            return;
+        }
+
+        for (Polyline line : serviceRouteLines) {
+            mapLibreMap.removePolyline(line);
+        }
+
+        serviceRouteLines.clear();
+        routePoints = new ArrayList<>();
+        runningRoute = null;
+        previousLocation = null;
+
+        LatLng lastPosition = null;
+        // 일시정지/재개 구간을 각각 그려
+        // 일시정지 중 이동한 구간을 연결하지 않습니다.
+        for (List<Location> segment : service.getRoute()) {
+            routePoints = new ArrayList<>();
+            runningRoute = null;
+
+            for (Location point : segment) {
+                lastPosition = new LatLng(
+                        point.getLatitude(),
+                        point.getLongitude()
+                );
+
+                routePoints.add(lastPosition);
+                previousLocation = new Location(point);
+            }
+
+            if (routePoints.size() >= 2) {
+                runningRoute = mapLibreMap.addPolyline(
+                        new PolylineOptions()
+                                .addAll(routePoints)
+                                .color(Color.BLUE)
+                                .width(5f)
+                );
+
+                serviceRouteLines.add(runningRoute);
+            }
+        }
+
+        if (lastPosition != null) {
+            if (currentLocationMarker == null) {
+                currentLocationMarker = mapLibreMap.addMarker(
+                        new org.maplibre.android.annotations.MarkerOptions()
+                                .position(lastPosition)
+                                .title("현재 위치")
+                );
+            } else {
+                currentLocationMarker.setPosition(lastPosition);
+            }
+
+            if (isFirstLocation) {
+                mapLibreMap.moveCamera(
+                        CameraUpdateFactory.newLatLngZoom(lastPosition, 16)
+                );
+
+                isFirstLocation = false;
+            } else {
+                mapLibreMap.moveCamera(
+                        CameraUpdateFactory.newLatLng(lastPosition)
+                );
+            }
+        }
+        drawnVersion = service.getRouteVersion();
+    }
+
+    // [추가] onStart()의 bindService()와 연결.
+    private final ServiceConnection connection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            service =
+                    ((RunningService.LocalBinder) binder).getService();
+
+            drawnVersion = -1;
+            maybeStart();
+            render();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            service = null;
+            btnPause_Resume.setEnabled(false);
+            btnStop.setEnabled(false);
+            titleText.setText("러닝 서비스 연결이 끊어졌습니다");
+        }
+    };
+    // [수정] 기존 render()의 오타를 고치고 서비스 시간 동기화를 연결했습니다.
+    // [수정] 서비스의 거리, 시간, 일시정지 상태를 화면에 반영.
+    private void render() {
+        if (service == null || finishingRun) return;
+
+        boolean active = service.isActive();
+        isPaused = service.isPaused();
+        totalDistance = service.getMeters();
+
+        long elapsed = service.getElapsedMillis();
+
+        if (isPaused) {
+            pauseOffset = elapsed;
+        }
+
+        btnPause_Resume.setEnabled(active);
+        btnStop.setEnabled(active);
+        btnPause_Resume.setText(isPaused ? "다시시작" : "일시정지");
+
+        startTimer();
+        updatePace();
+
+        runningDistanceText.setText(
+                String.format(Locale.KOREA,
+                        "%.2f km",
+                        totalDistance / 1000f
+                )
+        );
+
+        String error = service.getError();
+
+        if (error != null) {
+            titleText.setText(error);
+
+            if (!error.equals(lastError)) {
+                Toast.makeText(
+                        this,
+                        error,
+                        Toast.LENGTH_LONG
+                ).show();
+            }
+        } else if (active) {
+            titleText.setText(
+                    isPaused ? "러닝 일시정지" : "러닝 측정 중"
+            );
+        }
+
+        lastError = error;
+        if (isMapStyleLoaded
+                && drawnVersion != service.getRouteVersion()) {
+            drawRoute();
+        }
     }
 }
