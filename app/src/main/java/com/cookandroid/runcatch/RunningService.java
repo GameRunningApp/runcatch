@@ -7,11 +7,14 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.os.*;
+import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.gms.location.*;
+
+import com.cookandroid.runcatch.backend.RunRecord;
 
 import java.util.*;
 
@@ -36,9 +39,16 @@ public class RunningService extends Service {
 
     private float meters;
 
-    // [추가] Activity가 재생성되어도 시작 시각과 최고 속도를 유지.
+    // 러닝 시작 시각과 최고 속도는 서비스가 관리합니다.
     private long runStartTime;
     private float maxSpeed;
+
+    // [추가] 러닝 중 좌표별 환경을 서비스에서 집계합니다.
+    private ArrayList<EnvironmentFeature> environmentFeatures;
+    private int parkCount;
+    private int forestCount;
+    private int riverCount;
+    private int lakeCount;
 
     private Location previous;
     private String error;
@@ -62,6 +72,11 @@ public class RunningService extends Service {
         super.onCreate();
 
         client = LocationServices.getFusedLocationProviderClient(this);
+
+        // [추가] 기존 사전 저장 환경 데이터를 서비스에서 한 번 불러옵니다.
+        environmentFeatures = EnvironmentDataLoader.load(this);
+        if (environmentFeatures == null) environmentFeatures = new ArrayList<>();
+
 
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(
@@ -87,17 +102,17 @@ public class RunningService extends Service {
             for (Location location : result.getLocations()) {
                 long timestamp = location.getElapsedRealtimeNanos();
 
-                // 중복 좌표, 재개 전 좌표, 정확도가 낮은 좌표 제외.
+                // 중복 좌표, 재개 전 좌표, 지나치게 부정확한 위치를 제외합니다.
                 if (timestamp <= lastFixNanos
                         || timestamp < resumedAtNanos
                         || !location.hasAccuracy()
-                        || location.getAccuracy() > 50) {
+                        || location.getAccuracy() > 100) {
                     continue;
                 }
 
-                // 오래된 위치 정보 제외.
+                // 백그라운드에서 늦게 전달된 위치도 최대 2분까지 사용합니다.
                 if (SystemClock.elapsedRealtimeNanos() - timestamp
-                        > 30_000_000_000L) {
+                        > 120_000_000_000L) {
                     continue;
                 }
 
@@ -108,27 +123,27 @@ public class RunningService extends Service {
                             (timestamp - previous.getElapsedRealtimeNanos())
                                     / 1e9;
 
-                    // 시간이 역전되거나 비정상적으로 크게 튄 좌표 제외.
-                    if (seconds <= 0
-                            || (seconds < 30 && step / seconds > 12)) {
+                    // [수정] 늦게 온 좌표도 속도가 비정상적이지 않으면 거리 계산에 포함합니다.
+                    if (seconds <= 0 || step / seconds > 12) {
                         continue;
                     }
 
-                    // GPS가 오래 끊겼다면 새 구간으로 분리.
+                    // 업데이트 간격이 길면 지도 선만 새 구간으로 나누고 거리는 계속 누적합니다.
                     if (seconds >= 30) {
                         segments.add(new ArrayList<>());
-                    } else {
-                        meters += step;
                     }
+                    meters += step;
                 }
-
-                // [추가] 기존 Activity와 동일한 단위(km/h)로 보관.
+                // 최고 속도는 km/h로 저장합니다.
                 if (location.hasSpeed()) {
                     maxSpeed = Math.max(
                             maxSpeed,
                             location.getSpeed() * 3.6f
                     );
                 }
+
+                // [추가] 유효한 러닝 좌표를 환경 집계에 사용합니다.
+                countEnvironmentAtLocation(location.getLatitude(), location.getLongitude());
 
                 error = null;
                 previous = new Location(location);
@@ -198,6 +213,11 @@ public class RunningService extends Service {
         }
 
         meters = 0;
+        // [추가] 새 러닝을 시작할 때 이전 환경 집계값을 초기화합니다.
+        parkCount = 0;
+        forestCount = 0;
+        riverCount = 0;
+        lakeCount = 0;
         accumulated = 0;
         lastFixNanos = 0;
         previous = null;
@@ -210,13 +230,13 @@ public class RunningService extends Service {
         paused = false;
         error = null;
 
-        // [수정] 경과 시간 계산은 밀리초.
+
         startedAt = SystemClock.elapsedRealtime();
 
-        // [수정] GPS 좌표의 시간 비교는 나노초.
+
         resumedAtNanos = SystemClock.elapsedRealtimeNanos();
 
-        // [추가] DB 저장용 시작 시각과 최고 속도.
+        // DB 기록에 사용할 러닝 시작 시각과 최고 속도를 초기화합니다.
         runStartTime = System.currentTimeMillis();
         maxSpeed = 0;
 
@@ -272,16 +292,84 @@ public class RunningService extends Service {
         return error;
     }
 
-    // [추가] 서비스가 기록한 누적 거리(m).
+    // 서비스가 기록한 누적 거리(m)를 반환합니다.
     public float getMeters() {
         return meters;
     }
 
-    // [추가] 기존 Activity의 DB 저장용 변수에 전달.
+
+    // [추가] Activity 표시와 결과 화면 전달에 사용할 거리(km)를 반환합니다.
+    public float getKilometers() {
+        return meters / 1000f;
+    }
+
     public long getRunStartTime() {
         return runStartTime;
     }
 
+    // 페이스 계산은 서비스가 담당하고 Activity에는 표시 문자열만 전달합니다.
+    // [추가] GPS 좌표가 속한 환경 종류별 카운트를 서비스에서 누적합니다.
+    private void countEnvironmentAtLocation(double latitude, double longitude) {
+        Set<String> matchedCategories = EnvironmentMatcher.findMatchedCategories(
+                latitude,
+                longitude,
+                environmentFeatures
+        );
+        if (matchedCategories.contains("PARK")) parkCount++;
+        if (matchedCategories.contains("FOREST")) forestCount++;
+        if (matchedCategories.contains("RIVER")) riverCount++;
+        if (matchedCategories.contains("LAKE")) lakeCount++;
+
+        Log.d("ENV_COUNT", "공원: " + parkCount
+                + ", 숲: " + forestCount
+                + ", 하천: " + riverCount
+                + ", 호수: " + lakeCount);
+    }
+
+    // [추가] 최다 집계 환경을 반환하며 동률은 PARK, FOREST, RIVER, LAKE 순으로 선택합니다.
+    public String getFinalEnvironment() {
+        if (parkCount == 0 && forestCount == 0 && riverCount == 0 && lakeCount == 0) {
+            return "CITY";
+        }
+        int maxCount = Math.max(Math.max(parkCount, forestCount), Math.max(riverCount, lakeCount));
+        if (parkCount == maxCount) return "PARK";
+        if (forestCount == maxCount) return "FOREST";
+        if (riverCount == maxCount) return "RIVER";
+        return "LAKE";
+    }
+
+    // [추가] Activity에서 환경별 집계 결과를 로그로 확인할 때 사용합니다.
+    public String getEnvironmentCountSummary() {
+        return "공원: " + parkCount + ", 숲: " + forestCount
+                + ", 하천: " + riverCount + ", 호수: " + lakeCount;
+    }
+    // [추가] 러닝 기록에 저장할 시간·거리·페이스·평균 속도를 서비스 기준으로 계산합니다.
+    public RunRecord createRunRecord(String userId) {
+        float durationSec = getElapsedMillis() / 1000f;
+        float distanceKm = meters / 1000f;
+        float paceSecondsPerKm = distanceKm > 0 ? durationSec / distanceKm : 0;
+        float averageSpeedKmh = durationSec > 0
+                ? distanceKm / (durationSec / 3600f)
+                : 0;
+        return new RunRecord(
+                0,
+                userId,
+                runStartTime,
+                meters,
+                durationSec,
+                paceSecondsPerKm,
+                averageSpeedKmh,
+                maxSpeed
+        );
+    }
+    public String getPaceText() {
+        if (meters < 10) return "--'--\"/km";
+        long elapsed = getElapsedMillis();
+        if (elapsed <= 0) return "--'--\"/km";
+        double paceSeconds = elapsed / (meters / 1000.0) / 1000.0;
+        int rounded = (int) (Math.round(paceSeconds / 5.0) * 5);
+        return String.format(Locale.getDefault(), "%d'%02d\"/km", rounded / 60, rounded % 60);
+    }
     public float getMaxSpeed() {
         return maxSpeed;
     }
@@ -297,6 +385,18 @@ public class RunningService extends Service {
         return routeVersion;
     }
 
+    // Activity가 이미 그린 좌표 뒤에 추가된 점만 반환해 전체 경로 복사를 줄입니다.
+    public List<List<Location>> getRouteFrom(int[] pointCounts) {
+        List<List<Location>> added = new ArrayList<>();
+        for (int i = 0; i < segments.size(); i++) {
+            List<Location> segment = segments.get(i);
+            int from = i < pointCounts.length ? Math.min(pointCounts[i], segment.size()) : 0;
+            List<Location> points = new ArrayList<>();
+            for (int j = from; j < segment.size(); j++) points.add(new Location(segment.get(j)));
+            added.add(points);
+        }
+        return added;
+    }
     public List<List<Location>> getRoute() {
         List<List<Location>> copy = new ArrayList<>();
 
