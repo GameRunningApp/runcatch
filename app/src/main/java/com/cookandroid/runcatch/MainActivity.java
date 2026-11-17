@@ -17,10 +17,8 @@ import com.cookandroid.runcatch.backend.RunRecord;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 public class MainActivity extends BaseActivity {
 
@@ -87,7 +85,8 @@ public class MainActivity extends BaseActivity {
         // 주간 러닝 통계
         bindWeeklySummary(
                 db.getDistanceSince(userId, startOfWeek()) / 1000.0,
-                countStreakDays(db.getRunDates(userId)));
+                RunStreak.countDays(db.getRunDates(userId),
+                        System.currentTimeMillis(), java.util.TimeZone.getDefault()));
     }
 
     private void bindProfile(
@@ -185,47 +184,6 @@ public class MainActivity extends BaseActivity {
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
         cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
-        return cal.getTimeInMillis();
-    }
-
-    /**
-     * 연속 러닝 일수. 오늘 뛰었으면 오늘부터, 아직 안 뛰었으면 어제부터 거꾸로 센다.
-     *
-     * @param runDates 러닝 시작 시각 목록 (epoch ms)
-     */
-    private static int countStreakDays(List<Long> runDates) {
-        Set<Long> runDays = new HashSet<>();
-        for (long date : runDates) {
-            runDays.add(startOfDay(date));
-        }
-
-        long day = startOfDay(System.currentTimeMillis());
-        if (!runDays.contains(day)) {
-            day = previousDay(day);
-        }
-
-        int streak = 0;
-        while (runDays.contains(day)) {
-            streak++;
-            day = previousDay(day);
-        }
-        return streak;
-    }
-
-    private static long startOfDay(long millis) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(millis);
-        cal.set(Calendar.HOUR_OF_DAY, 0);
-        cal.set(Calendar.MINUTE, 0);
-        cal.set(Calendar.SECOND, 0);
-        cal.set(Calendar.MILLISECOND, 0);
-        return cal.getTimeInMillis();
-    }
-
-    private static long previousDay(long dayStartMillis) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(dayStartMillis);
-        cal.add(Calendar.DAY_OF_MONTH, -1);
         return cal.getTimeInMillis();
     }
 }

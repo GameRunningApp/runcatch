@@ -342,7 +342,7 @@ public class RunningActivity extends AppCompatActivity {
         RunCatchDbHelper db = RunCatchDbHelper.getInstance(this);
         String userId = RunCatchDbHelper.CURRENT_USER_ID;
 
-        int streakDays = ExpRules.streakDays(
+        int streakDays = RunStreak.countDays(
                 db.getRunDates(userId), record.runDate, java.util.TimeZone.getDefault());
         // TODO(개인 목표): 목표 설정 기능이 생기면 달성 여부를 넘긴다 (+10)
         boolean goalAchieved = false;
