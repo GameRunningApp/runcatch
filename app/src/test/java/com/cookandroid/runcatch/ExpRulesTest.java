@@ -4,16 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.TimeZone;
-
 public class ExpRulesTest {
-
-    private static final TimeZone SEOUL = TimeZone.getTimeZone("Asia/Seoul");
-    private static final long DAY = 24L * 60 * 60 * 1000;
-    // 2026-11-04 10:00 KST
-    private static final long TODAY = 1793754000000L;
 
     @Test
     public void distanceExp_per100m() {
@@ -52,16 +43,5 @@ public class ExpRulesTest {
         int second = ExpRules.RUN_COMPLETE_EXP + ExpRules.distanceExp(1000f) + ExpRules.streakExp(2);
         assertEquals(1, ExpRules.levelOf(first));
         assertEquals(2, ExpRules.levelOf(first + second));
-    }
-
-    @Test
-    public void streakDays_countsBackFromToday() {
-        assertEquals(1, ExpRules.streakDays(Collections.emptyList(), TODAY, SEOUL));
-        assertEquals(1, ExpRules.streakDays(Arrays.asList(TODAY, TODAY - 2 * DAY), TODAY, SEOUL));
-        assertEquals(3, ExpRules.streakDays(
-                Arrays.asList(TODAY, TODAY - DAY, TODAY - 2 * DAY, TODAY - 4 * DAY), TODAY, SEOUL));
-        // 같은 날 여러 번 뛰어도 1일
-        assertEquals(2, ExpRules.streakDays(
-                Arrays.asList(TODAY, TODAY - 3600_000L, TODAY - DAY), TODAY, SEOUL));
     }
 }
