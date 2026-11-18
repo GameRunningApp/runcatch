@@ -6,6 +6,8 @@ import pymysql
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from community_grouping_api import router as community_grouping_router
+
 # 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
@@ -25,6 +27,7 @@ SCHEMA_VERSION = 3
 
 app = FastAPI()
 
+app.include_router(community_grouping_router)
 
 def get_db():
     return pymysql.connect(**DB_CONFIG)
