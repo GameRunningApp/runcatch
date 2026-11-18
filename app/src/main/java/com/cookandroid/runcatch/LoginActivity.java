@@ -9,6 +9,8 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -21,6 +23,17 @@ public class LoginActivity extends AppCompatActivity {
 
     private EditText emailEditText;
     private EditText passwordEditText;
+
+    private final ActivityResultLauncher<Intent> signUpLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    String email = result.getData().getStringExtra(SignUpActivity.EXTRA_EMAIL);
+                    emailEditText.setText(email);
+                    passwordEditText.setText("");
+                    passwordEditText.requestFocus();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,7 +67,8 @@ public class LoginActivity extends AppCompatActivity {
 
         TextView signUpText = findViewById(R.id.signUpText);
 
-        signUpText.setOnClickListener(v -> showPreparing());
+        signUpText.setOnClickListener(v ->
+                signUpLauncher.launch(new Intent(this, SignUpActivity.class)));
     }
 
     private void applySystemBarInsets() {
