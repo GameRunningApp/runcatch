@@ -1,6 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 import pymysql
 from fastapi import FastAPI, HTTPException
@@ -23,7 +23,8 @@ EXP_PER_LEVEL = 5000
 # 테이블 구조를 바꾸면 올린다. DB의 버전이 더 낮으면 테이블을 지우고 새로 만든다 (개발 단계)
 # 2: 캐릭터를 앱의 14종(정수 id)으로, running_record를 앱 구조로 변경
 # 3: SQLite에서 MySQL로 변경
-SCHEMA_VERSION = 3
+# 4: running_record에 environment(러닝 환경) 추가
+SCHEMA_VERSION = 4
 
 app = FastAPI()
 
@@ -67,6 +68,21 @@ CHARACTERS = [
      "이번 달 리그 정상에 도전해보세요", "리그 1위에게만 나타나는 전설의 러너", None),
 ]
 
+# 앱 RunningActivity.getFinalEnvironment()가 보내는 러닝 환경
+Environment = Literal["CITY", "PARK", "FOREST", "RIVER", "LAKE"]
+
+# 장소 캐릭터 획득 조건: character_id → (환경, 종류, 값)
+# single: 그 환경에서 한 번에 값(m) 이상 러닝, count: 그 환경 러닝 값회, total: 그 환경 누적 값(m)
+# 산양·독수리(MOUNTAIN)는 앱이 아직 산을 판단하지 않아서 없음
+PLACE_CONDITIONS = {
+    1: ("RIVER", "single", 1000),   # 수달: 강·하천 근처 1Km 이상 러닝
+    2: ("LAKE", "count", 3),        # 오리: 호수 근처 러닝 3회
+    3: ("PARK", "single", 1000),    # 다람쥐: 공원·산책로 1Km 이상 러닝
+    4: ("FOREST", "total", 5000),   # 고슴도치: 숲길 누적 5Km 러닝
+    5: ("CITY", "single", 1000),    # 고양이: 도심 거리 1Km 이상 러닝
+    6: ("CITY", "count", 3),        # 비둘기: 번화가 러닝 3회
+}
+
 
 conn = get_db()
 with conn.cursor() as cur:
@@ -86,6 +102,7 @@ with conn.cursor() as cur:
             running_number INT          PRIMARY KEY AUTO_INCREMENT,
             user_id        VARCHAR(100) NOT NULL,
             run_date       BIGINT       NOT NULL,  -- 러닝 시작 시각 (epoch ms)
+            environment    VARCHAR(20),            -- CITY, PARK, FOREST, RIVER, LAKE
             distance       DOUBLE,                 -- m
             duration       DOUBLE,                 -- 초
             pace           DOUBLE,                 -- 초/km
@@ -137,6 +154,7 @@ conn.close()
 class RunCreate(BaseModel):
     user_id: str
     run_date: Optional[int] = None  # 러닝 시작 시각 (epoch ms). 없으면 서버가 받은 시각
+    environment: Optional[Environment] = None  # 러닝 환경. 없으면 장소 캐릭터 판단 안 함
     distance: float = Field(ge=0)
     duration: float = Field(ge=0)
     pace: Optional[float] = None
@@ -201,17 +219,47 @@ def get_owned_characters(cur, user_id):
     return [OwnedCharacter(**row) for row in cur.fetchall()]
 
 
-def unlock_characters(cur, user_id):
-    # TODO: 지금은 누적 거리 캐릭터(required_distance 있음)만 판단. 장소·연속·리그는 추후
-    total = get_total_distance(cur, user_id)
+def place_condition_met(cur, user_id, environment, kind, value):
+    if kind == "single":
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM running_record "
+            "WHERE user_id = %s AND environment = %s AND distance >= %s",
+            (user_id, environment, value),
+        )
+        return cur.fetchone()["n"] > 0
+    if kind == "count":
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM running_record WHERE user_id = %s AND environment = %s",
+            (user_id, environment),
+        )
+        return cur.fetchone()["n"] >= value
     cur.execute(
-        "SELECT * FROM `character` WHERE required_distance IS NOT NULL "
-        "AND required_distance <= %s AND character_id NOT IN "
-        "(SELECT character_id FROM user_character WHERE user_id = %s) "
-        "ORDER BY required_distance",
-        (total, user_id),
+        "SELECT COALESCE(SUM(distance), 0) AS total FROM running_record "
+        "WHERE user_id = %s AND environment = %s",
+        (user_id, environment),
     )
-    rows = cur.fetchall()
+    return cur.fetchone()["total"] >= value
+
+
+def unlock_characters(cur, user_id):
+    # TODO: 연속·리그·산 캐릭터는 추후
+    cur.execute("SELECT character_id FROM user_character WHERE user_id = %s", (user_id,))
+    owned = {row["character_id"] for row in cur.fetchall()}
+    total = get_total_distance(cur, user_id)
+    cur.execute("SELECT * FROM `character` ORDER BY character_id")
+    rows = []
+    for row in cur.fetchall():
+        character_id = row["character_id"]
+        if character_id in owned:
+            continue
+        if row["required_distance"] is not None:
+            unlocked = total >= row["required_distance"]
+        elif character_id in PLACE_CONDITIONS:
+            unlocked = place_condition_met(cur, user_id, *PLACE_CONDITIONS[character_id])
+        else:
+            unlocked = False
+        if unlocked:
+            rows.append(row)
     cur.execute(
         "SELECT 1 FROM user_character WHERE user_id = %s AND is_main = TRUE",
         (user_id,),
@@ -255,11 +303,12 @@ def create_run(run: RunCreate):
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO running_record (user_id, run_date, distance, duration, pace, "
-            "avg_speed, max_speed) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO running_record (user_id, run_date, environment, distance, duration, "
+            "pace, avg_speed, max_speed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 run.user_id,
                 run_date,
+                run.environment,
                 run.distance,
                 run.duration,
                 run.pace,
