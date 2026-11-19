@@ -1,4 +1,3 @@
-````
 # RUN CATCH Backend
 
 FastAPI 서버. 러닝 기록, 통계, 캐릭터 데이터를 저장하고 앱에 제공합니다.
@@ -32,6 +31,7 @@ Swagger(API 테스트): http://127.0.0.1:8000/docs
 
 - running_number: 러닝 기록 번호 (서버가 부여)
 - run_date: 러닝 시작 시각, epoch ms (int). 오프라인으로 저장했다가 나중에 보내도 날짜가 맞도록 앱에서 보냄 (없으면 서버가 받은 시각)
+- environment: 러닝 환경. 앱 `RunningActivity.getFinalEnvironment()` 값 그대로 (CITY, PARK, FOREST, RIVER, LAKE). 없으면 장소 캐릭터는 판단하지 않음
 - distance: 미터 (float)
 - duration: 초 (float)
 - pace: 초/km, avg_speed·max_speed: km/h
@@ -55,8 +55,12 @@ Swagger(API 테스트): http://127.0.0.1:8000/docs
 
 - 캐릭터 목록은 앱 `RunCharacter.ALL`과 같은 14종. `character_id`(정수)도 앱의 `RunCharacter.id`와 같다. 앱에서 캐릭터를 바꾸면 `main.py`의 `CHARACTERS`도 같이 바꾼다
 - `category`는 앱 `CharacterCategory` 이름 (WATER, FOREST, CITY, MOUNTAIN, DISTANCE, STREAK, LEAGUE)
-- 지금 서버가 판단하는 획득 조건은 누적 거리뿐: 토끼(9) 10km, 여우(10) 20km, 곰(11) 30km (`required_distance`)
-- 장소·연속·리그 캐릭터는 아직 서버에서 판단하지 않음 (`required_distance`가 null)
+- 누적 거리 캐릭터: 토끼(9) 10km, 여우(10) 20km, 곰(11) 30km (`required_distance`)
+- 장소 캐릭터 (`main.py`의 `PLACE_CONDITIONS`, 러닝 기록의 environment로 판단)
+  - 수달(1): RIVER에서 한 번에 1km 이상, 다람쥐(3): PARK 1km 이상, 고양이(5): CITY 1km 이상
+  - 오리(2): LAKE 러닝 3회, 비둘기(6): CITY 러닝 3회
+  - 고슴도치(4): FOREST 누적 5km
+- 산양·독수리(MOUNTAIN)는 앱이 아직 산을 판단하지 않아서 없음. 연속·리그 캐릭터도 아직 서버에서 판단하지 않음
 - 처음 얻은 캐릭터가 자동으로 대표 캐릭터
 - 러닝 1m = 대표 캐릭터 경험치 1, 5000마다 레벨업
-- 레벨과 캐릭터는 서버에서 계산 (앱은 기록만 전송) 
+- 레벨과 캐릭터는 서버에서 계산 (앱은 기록만 전송)
