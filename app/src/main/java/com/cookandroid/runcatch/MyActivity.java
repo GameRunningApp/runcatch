@@ -1,25 +1,28 @@
 package com.cookandroid.runcatch;
 
-import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
-
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 import com.cookandroid.runcatch.backend.RunCatchDbHelper;
 import com.cookandroid.runcatch.backend.RunCharacter;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -28,11 +31,16 @@ public class MyActivity extends BaseActivity {
     // 이동 범위 맨 위(먼 곳)와 맨 아래(가까운 곳)에서의 캐릭터 크기 배율
     private static final float FAR_SCALE = 0.4f;
     private static final float NEAR_SCALE = 1.5f;
+    // 쓰다듬기 동작을 시트의 프레임 시간보다 몇 배 빠르게 재생할지
+    private static final int PAT_SPEED = 3;
+    private static final String SPRITE_DIR = "character_motion/aaa/";
 
     private final Random random = new Random();
     private final List<WanderingCharacter> wanderingCharacters = new ArrayList<>();
 
     private ViewGroup characterArea;
+    // 불러온 시트. 동작이 바뀔 때마다 파일을 다시 읽지 않도록 화면에 있는 동안 들고 있는다
+    private final Map<String, Bitmap> spriteSheets = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,6 +54,23 @@ public class MyActivity extends BaseActivity {
         addOwnedCharacters();
     }
 
+    /** assets/character_motion/aaa 에서 시트를 읽는다. 읽지 못하면 null */
+    private Bitmap loadSpriteSheet(String fileName) {
+        Bitmap sheet = spriteSheets.get(fileName);
+        if (sheet != null) return sheet;
+        try (InputStream in = getAssets().open(SPRITE_DIR + fileName)) {
+            sheet = BitmapFactory.decodeStream(in);
+        } catch (IOException e) {
+            Log.e("MyActivity", "시트를 읽지 못함: " + fileName, e);
+            return null;
+        }
+        if (sheet == null) return null;
+        // 칸 좌표가 픽셀 기준이라 화면 밀도에 따라 크기가 바뀌지 않게 한다
+        sheet.setDensity(Bitmap.DENSITY_NONE);
+        spriteSheets.put(fileName, sheet);
+        return sheet;
+    }
+
     /** user_character에 저장된 캐릭터 전부를 영역에 추가한다 */
     private void addOwnedCharacters() {
         Set<Integer> ownedIds = RunCatchDbHelper.getInstance(this)
@@ -54,16 +79,21 @@ public class MyActivity extends BaseActivity {
 
         for (RunCharacter character : RunCharacter.ALL) {
             if (ownedIds.contains(character.id)) {
-                TextView view = (TextView) inflater.inflate(
+                View view = inflater.inflate(
                         R.layout.item_wandering_character, characterArea, false);
+                TextView textView = view.findViewById(R.id.characterText);
+                ImageView imageView = view.findViewById(R.id.characterImage);
                 Motion motion = Motion.findById(character.id);
-                view.setText(character.emoji);
+                textView.setText(character.emoji);
                 // TODO(임시 코드): 캐릭터 이미지가 들어가면 없앤다
                 if (motion.hasFrames()) {
-                    fixWidthToWidestFrame(view, motion);
+                    fixWidthToWidestFrame(textView, motion);
+                }
+                if (motion.hasSprites()) {
+                    imageView.setVisibility(View.VISIBLE);
                 }
                 characterArea.addView(view);
-                wanderingCharacters.add(new WanderingCharacter(view, motion));
+                wanderingCharacters.add(new WanderingCharacter(view, textView, imageView, motion));
             }
         }
     }
@@ -76,8 +106,10 @@ public class MyActivity extends BaseActivity {
         float widest = 0;
         for (Motion.State state : Motion.State.values()) {
             for (int i = 0; i < Motion.FRAME_COUNT; i++) {
-                widest = Math.max(widest,
-                        view.getPaint().measureText(motion.getFrame(state, i)));
+                String frame = motion.getFrame(state, i);
+                if (frame != null) {
+                    widest = Math.max(widest, view.getPaint().measureText(frame));
+                }
             }
         }
         view.setWidth((int) Math.ceil(widest));
@@ -106,14 +138,25 @@ public class MyActivity extends BaseActivity {
      */
     private class WanderingCharacter {
 
-        private final TextView view;
+        private final View view;
+        private final TextView textView;
+        private final ImageView imageView;
         // 속도, 이동 거리, 쉬는 시간, 애니메이션 프레임은 캐릭터마다 다르다
         private final Motion motion;
+        // 이 캐릭터가 재생할 수 있는 쉬는 모션
+        private final List<Motion.State> restMotions;
         private final Runnable moveRunnable = this::moveToNearbyPosition;
         private final Runnable frameRunnable = this::updateFrame;
         private final Runnable animationRunnable = this::updateAnimation;
         private final Runnable restMotionStartRunnable = this::startRestMotion;
         private final Runnable restMotionEndRunnable = this::endRestMotion;
+        private final Runnable patEndRunnable = this::startRest;
+        private final Matrix spriteMatrix = new Matrix();
+        private final Rect spriteClip = new Rect();
+        // 지금 imageView에 들어 있는 시트 파일 이름. null이면 비어 있다
+        private String shownSheet = null;
+        // 왼쪽으로 옆 걸음을 걸을 때 오른쪽 시트를 좌우반전한다
+        private boolean facingLeft = false;
         private boolean placed = false;
         private Motion.State state = Motion.State.IDLE;
         private long stateStartTime;
@@ -125,9 +168,50 @@ public class MyActivity extends BaseActivity {
         private float maxY;
         private long lastFrameTime;
 
-        WanderingCharacter(TextView view, Motion motion) {
+        WanderingCharacter(View view, TextView textView, ImageView imageView, Motion motion) {
             this.view = view;
+            this.textView = textView;
+            this.imageView = imageView;
             this.motion = motion;
+            this.restMotions = motion.getRestMotions();
+            if (motion.getSprite(Motion.State.PAT) != null) {
+                view.setOnTouchListener(this::onTouch);
+            }
+        }
+
+        /** 손가락이 닿아 있는 동안 쓰다듬기 동작을 반복하고, 떼면 재생 중인 한 바퀴까지만 보여 준다 */
+        private boolean onTouch(View v, MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startPat();
+                    break;
+                case MotionEvent.ACTION_UP:
+                    v.performClick();
+                    endPatAfterLoop();
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    endPatAfterLoop();
+                    break;
+            }
+            return true;
+        }
+
+        /** 이동·쉬기를 멈추고 쓰다듬기 동작을 반복 재생한다 */
+        private void startPat() {
+            view.removeCallbacks(moveRunnable);
+            view.removeCallbacks(frameRunnable);
+            view.removeCallbacks(restMotionStartRunnable);
+            view.removeCallbacks(restMotionEndRunnable);
+            view.removeCallbacks(patEndRunnable);
+            setState(Motion.State.PAT);
+        }
+
+        /** 지금 재생 중인 쓰다듬기 한 바퀴가 끝나면 다시 쉬기 시작한다 */
+        private void endPatAfterLoop() {
+            if (state != Motion.State.PAT) return;
+            long loopMs = motion.getSprite(Motion.State.PAT).totalDurationMs / PAT_SPEED;
+            long elapsed = SystemClock.uptimeMillis() - stateStartTime;
+            view.postDelayed(patEndRunnable, loopMs - elapsed % loopMs);
         }
 
         void start() {
@@ -146,6 +230,7 @@ public class MyActivity extends BaseActivity {
             view.removeCallbacks(animationRunnable);
             view.removeCallbacks(restMotionStartRunnable);
             view.removeCallbacks(restMotionEndRunnable);
+            view.removeCallbacks(patEndRunnable);
         }
 
         /** 동작이 바뀌면 애니메이션을 첫 프레임부터 다시 시작한다 */
@@ -154,15 +239,58 @@ public class MyActivity extends BaseActivity {
             stateStartTime = SystemClock.uptimeMillis();
         }
 
-        /** 지난 시간으로 현재 프레임을 골라 표시한다. 글자가 바뀔 때만 뷰를 갱신한다 */
+        /** 지난 시간으로 현재 프레임을 골라 표시한다. 스프라이트가 있으면 이미지, 없으면 글자 프레임 */
         private void updateAnimation() {
             long elapsed = SystemClock.uptimeMillis() - stateStartTime;
-            int frameNumber = (int) (elapsed * Motion.FRAMES_PER_SECOND / 1000);
-            String frame = motion.getFrame(state, frameNumber);
-            if (!frame.contentEquals(view.getText())) {
-                view.setText(frame);
+            Motion.Sprite sprite = motion.getSprite(state);
+            if (sprite != null) {
+                textView.setText("");
+                if (state == Motion.State.PAT) elapsed *= PAT_SPEED;
+                showSpriteFrame(sprite, sprite.frameAt(elapsed),
+                        state == Motion.State.SIDE && facingLeft);
+            } else {
+                if (shownSheet != null) {
+                    imageView.setImageDrawable(null);
+                    shownSheet = null;
+                }
+                int frameNumber = (int) (elapsed * Motion.FRAMES_PER_SECOND / 1000);
+                String frame = motion.getFrame(state, frameNumber);
+                if (!frame.contentEquals(textView.getText())) {
+                    textView.setText(frame);
+                }
             }
-            view.postDelayed(animationRunnable, Motion.FRAME_DURATION_MS);
+            // 화면 갱신마다 확인한다. 3배 빠른 쓰다듬기 프레임(약 27ms)이 24fps 간격보다 짧아서
+            view.postOnAnimation(animationRunnable);
+        }
+
+        /** 시트의 한 칸을 뷰 안에 비율을 지켜 최대한 크게, 아래쪽 가운데에 맞춰 그린다 */
+        private void showSpriteFrame(Motion.Sprite sprite, int frame, boolean mirror) {
+            float viewWidth = imageView.getWidth();
+            float viewHeight = imageView.getHeight();
+            if (viewWidth == 0 || viewHeight == 0) return; // 레이아웃 전
+            if (!sprite.fileName.equals(shownSheet)) {
+                Bitmap sheet = loadSpriteSheet(sprite.fileName);
+                if (sheet == null) return;
+                imageView.setImageBitmap(sheet);
+                shownSheet = sprite.fileName;
+            }
+            float scale = Math.min(viewWidth / sprite.frameWidth, viewHeight / sprite.frameHeight);
+            float drawnWidth = sprite.frameWidth * scale;
+            float drawnHeight = sprite.frameHeight * scale;
+            float left = (viewWidth - drawnWidth) / 2f;
+            float top = viewHeight - drawnHeight;
+
+            spriteMatrix.setScale(scale, scale);
+            spriteMatrix.postTranslate(left - sprite.frameLeft(frame) * scale,
+                    top - sprite.frameTop(frame) * scale);
+            if (mirror) {
+                spriteMatrix.postScale(-1f, 1f, viewWidth / 2f, 0f);
+            }
+            imageView.setImageMatrix(spriteMatrix);
+            // 칸이 뷰보다 좁으면 옆 칸이 보이므로 그린 칸 밖은 잘라 낸다
+            spriteClip.set((int) left, (int) top,
+                    (int) Math.ceil(left + drawnWidth), (int) viewHeight);
+            imageView.setClipBounds(spriteClip);
         }
 
         /** 정지 상태로 쉬기 시작한다. 프레임이 없는 캐릭터는 쉬는 시간만 기다렸다가 이동한다 */
@@ -174,7 +302,7 @@ public class MyActivity extends BaseActivity {
             int restMotionDelay = randomBetween(
                     Motion.MIN_REST_MOTION_DELAY_MS, Motion.MAX_REST_MOTION_DELAY_MS);
             // 쉬는 모션을 시작할 시간이 쉬는 시간보다 길면 모션 없이 이동한다
-            if (motion.hasFrames() && restMotionDelay < pause) {
+            if (!restMotions.isEmpty() && restMotionDelay < pause) {
                 view.postDelayed(restMotionStartRunnable, restMotionDelay);
             } else {
                 view.postDelayed(moveRunnable, pause);
@@ -183,7 +311,7 @@ public class MyActivity extends BaseActivity {
 
         /** 무작위 쉬는 모션을 무작위 시간 동안 재생한다 */
         private void startRestMotion() {
-            setState(Motion.REST_MOTIONS[random.nextInt(Motion.REST_MOTIONS.length)]);
+            setState(restMotions.get(random.nextInt(restMotions.size())));
             int duration = randomBetween(
                     Motion.MIN_REST_MOTION_DURATION_MS, Motion.MAX_REST_MOTION_DURATION_MS);
             view.postDelayed(restMotionEndRunnable, duration);
@@ -230,6 +358,7 @@ public class MyActivity extends BaseActivity {
             targetX = clamp(startX + (float) Math.cos(angle) * radius, minX, maxX);
             targetY = clamp(startY + (float) Math.sin(angle) * radius, minY, maxY);
 
+            facingLeft = targetX < startX;
             setState(stateForMove(targetX - startX, targetY - startY));
             lastFrameTime = SystemClock.uptimeMillis();
             view.postOnAnimation(frameRunnable);
