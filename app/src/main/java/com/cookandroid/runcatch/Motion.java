@@ -1,5 +1,6 @@
 package com.cookandroid.runcatch;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -12,14 +13,54 @@ import java.util.Map;
  */
 public class Motion {
 
-    /** 캐릭터의 현재 동작. 앞: 아래로 이동, 뒤: 위로 이동, 옆: 좌우로 이동, 정지·쉼: 쉬는 시간 */
+    /** 캐릭터의 현재 동작. 앞: 아래로 이동, 뒤: 위로 이동, 옆: 좌우로 이동, 정지·쉼: 쉬는 시간, 쓰다듬기: 눌렸을 때 */
     public enum State {
-        FRONT, BACK, SIDE, IDLE, REST_1, REST_2, REST_3, REST_4, REST_5
+        FRONT, BACK, SIDE, IDLE, REST_1, REST_2, REST_3, REST_4, REST_5, PAT
+    }
+
+    /** 한 동작의 스프라이트 시트. 같은 크기의 칸이 왼쪽 위부터 가로로 columns개씩 놓여 있다 */
+    public static class Sprite {
+        // assets/character_motion/aaa 안의 시트 파일 이름
+        public final String fileName;
+        public final int frameWidth;
+        public final int frameHeight;
+        private final int columns;
+        // 프레임마다 보여 주는 시간(ms). 시트와 함께 받은 json의 duration 값
+        private final int[] durationsMs;
+        public final int totalDurationMs;
+
+        Sprite(String fileName, int columns, int frameWidth, int frameHeight, int... durationsMs) {
+            this.fileName = fileName;
+            this.columns = columns;
+            this.frameWidth = frameWidth;
+            this.frameHeight = frameHeight;
+            this.durationsMs = durationsMs;
+            int total = 0;
+            for (int duration : durationsMs) total += duration;
+            this.totalDurationMs = total;
+        }
+
+        /** 동작을 시작한 뒤 elapsedMs가 지났을 때의 프레임 번호. 마지막 프레임 다음에는 처음으로 돌아간다 */
+        public int frameAt(long elapsedMs) {
+            long time = elapsedMs % totalDurationMs;
+            for (int i = 0; i < durationsMs.length; i++) {
+                time -= durationsMs[i];
+                if (time < 0) return i;
+            }
+            return durationsMs.length - 1;
+        }
+
+        public int frameLeft(int frame) {
+            return (frame % columns) * frameWidth;
+        }
+
+        public int frameTop(int frame) {
+            return (frame / columns) * frameHeight;
+        }
     }
 
     public static final int FRAMES_PER_SECOND = 24;
     public static final int FRAME_COUNT = 4;
-    public static final long FRAME_DURATION_MS = 1000 / FRAMES_PER_SECOND;
 
     // 쉬는 시간에 무작위로 고르는 쉬는 모션
     public static final State[] REST_MOTIONS = {
@@ -48,8 +89,9 @@ public class Motion {
             new Motion(12, 50f, 40f, 70f, 1500, 7500),     // 삐약이
             new Motion(13, 100f, 160f, 220f, 1500, 10000),  // 강아지
             new Motion(14, 85f, 240f, 260f, 7500, 25000),   // 유니콘
-            // TODO: 임시 캐릭터의 글자 프레임. 실제 이미지가 생기면 바꾼다
-            new Motion(15, 60f, 120f, 160f, 4500, 22500, createTextFrames())));
+            // TODO: 임시 캐릭터. 쉼3~5는 아직 없다
+            new Motion(15, 60f, 120f, 160f, 4500, 22500,
+                    Collections.<State, String[]>emptyMap(), createFireSprites())));
 
     // 목록에 아직 없는 캐릭터가 쓰는 기본값
     private static final Motion DEFAULT = new Motion(-1, 60f, 120f, 160f, 4500, 22500);
@@ -64,17 +106,21 @@ public class Motion {
     public final int maxPauseMs;
     // 동작별 프레임. 비어 있으면 애니메이션 없이 캐릭터 이모지를 그대로 보여 준다
     private final Map<State, String[]> frames;
+    // 동작별 스프라이트 시트. 있으면 글자 프레임 대신 이미지를 보여 준다
+    private final Map<State, Sprite> sprites;
 
     private Motion(int characterId, float moveSpeedDpPerSec,
                    float minMoveRadiusDp, float maxMoveRadiusDp,
                    int minPauseMs, int maxPauseMs) {
         this(characterId, moveSpeedDpPerSec, minMoveRadiusDp, maxMoveRadiusDp,
-                minPauseMs, maxPauseMs, Collections.<State, String[]>emptyMap());
+                minPauseMs, maxPauseMs, Collections.<State, String[]>emptyMap(),
+                Collections.<State, Sprite>emptyMap());
     }
 
     private Motion(int characterId, float moveSpeedDpPerSec,
                    float minMoveRadiusDp, float maxMoveRadiusDp,
-                   int minPauseMs, int maxPauseMs, Map<State, String[]> frames) {
+                   int minPauseMs, int maxPauseMs,
+                   Map<State, String[]> frames, Map<State, Sprite> sprites) {
         this.characterId = characterId;
         this.moveSpeedDpPerSec = moveSpeedDpPerSec;
         this.minMoveRadiusDp = minMoveRadiusDp;
@@ -82,6 +128,7 @@ public class Motion {
         this.minPauseMs = minPauseMs;
         this.maxPauseMs = maxPauseMs;
         this.frames = frames;
+        this.sprites = sprites;
     }
 
     /** 캐릭터 id로 움직임 찾기. 목록에 없으면 기본값 */
@@ -93,37 +140,53 @@ public class Motion {
     }
 
     public boolean hasFrames() {
-        return !frames.isEmpty();
+        return !frames.isEmpty() || !sprites.isEmpty();
     }
 
-    /** 동작의 frameNumber번째 프레임 (0부터 시작). 마지막 프레임 다음에는 처음으로 돌아간다 */
+    public boolean hasSprites() {
+        return !sprites.isEmpty();
+    }
+
+    /** 동작의 스프라이트 시트. 없으면 null */
+    public Sprite getSprite(State state) {
+        return sprites.get(state);
+    }
+
+    /** 이 캐릭터에 프레임이 있는 쉬는 모션만 고른다. 없는 쉬는 모션은 재생하지 않는다 */
+    public List<State> getRestMotions() {
+        List<State> restMotions = new ArrayList<>();
+        for (State state : REST_MOTIONS) {
+            if (frames.containsKey(state) || sprites.containsKey(state)) restMotions.add(state);
+        }
+        return restMotions;
+    }
+
+    /** 동작의 frameNumber번째 글자 프레임 (0부터 시작). 마지막 프레임 다음에는 처음으로 돌아간다. 없으면 null */
     public String getFrame(State state, int frameNumber) {
         String[] stateFrames = frames.get(state);
+        if (stateFrames == null) return null;
         return stateFrames[frameNumber % stateFrames.length];
     }
 
-    private static Map<State, String[]> createTextFrames() {
-        Map<State, String[]> frames = new EnumMap<>(State.class);
-        frames.put(State.FRONT, createDotFrames("앞"));
-        frames.put(State.BACK, createDotFrames("뒤"));
-        frames.put(State.SIDE, createDotFrames("옆"));
-        frames.put(State.IDLE, new String[]{"정지"});
-        frames.put(State.REST_1, createDotFrames("쉼1"));
-        frames.put(State.REST_2, createDotFrames("쉼2"));
-        frames.put(State.REST_3, createDotFrames("쉼3"));
-        frames.put(State.REST_4, createDotFrames("쉼4"));
-        frames.put(State.REST_5, createDotFrames("쉼5"));
-        return frames;
-    }
-
-    /** 글자 뒤에 점을 1개부터 FRAME_COUNT개까지 붙인 프레임을 만든다 ("옆.", "옆..", ...) */
-    private static String[] createDotFrames(String label) {
-        String[] dotFrames = new String[FRAME_COUNT];
-        StringBuilder text = new StringBuilder(label);
-        for (int i = 0; i < FRAME_COUNT; i++) {
-            text.append('.');
-            dotFrames[i] = text.toString();
-        }
-        return dotFrames;
+    /** 임시 캐릭터의 스프라이트 시트 (모든 칸 150x150). 칸 크기와 프레임 시간은 시트와 함께 받은 json 값 */
+    private static Map<State, Sprite> createFireSprites() {
+        Map<State, Sprite> sprites = new EnumMap<>(State.class);
+        // 정지: 한 장짜리 이미지를 한 칸 시트로 쓴다
+        sprites.put(State.IDLE, new Sprite("fire_idle.png", 1, 150, 150, 1000));
+        sprites.put(State.FRONT, new Sprite("fire_walk_front.png", 4, 150, 150,
+                70, 60, 100, 100, 70, 60, 70, 60, 100, 100, 70, 60));
+        // 오른쪽으로 걷는 시트. 왼쪽으로 갈 때는 좌우반전해서 그린다
+        sprites.put(State.SIDE, new Sprite("fire_walk_side.png", 4, 150, 150,
+                75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75));
+        sprites.put(State.BACK, new Sprite("fire_walk_back.png", 4, 150, 150,
+                75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75));
+        // 쉼1: 고개 갸웃거리기, 쉼2: 잠자기
+        sprites.put(State.REST_1, new Sprite("fire_head_tilt.png", 4, 150, 150,
+                120, 120, 180, 120, 130, 180, 130));
+        sprites.put(State.REST_2, new Sprite("fire_sleep.png", 4, 150, 150,
+                230, 230, 230, 230, 230, 230, 230, 230));
+        sprites.put(State.PAT, new Sprite("fire_pat.png", 4, 150, 150,
+                130, 80, 80, 80, 80, 80, 180, 90, 80, 90, 90, 110));
+        return sprites;
     }
 }
