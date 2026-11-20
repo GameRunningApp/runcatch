@@ -16,6 +16,8 @@ import java.util.Locale;
  * 커뮤니티 화면 (화면 틀 단계).
  * 같은 레벨 그룹 러너들의 피드 · 월간 리그 · 레이드를 탭으로 나눠 보여준다.
  *
+ * 반응 · 응원 버튼 애니메이션은 CommunityEffects에 있다.
+ *
  * TODO(서버): 지금은 CommunityDummyData의 임시 데이터로 그린다.
  *             반응 · 응원도 화면에서만 바뀌고 저장되지 않는다.
  */
@@ -116,7 +118,10 @@ public class CommunityActivity extends BaseActivity {
             bindReaction(muscle, "💪", post.muscleCount);
 
             TextView cheer = item.findViewById(R.id.feedCheerButton);
+            View avatar = item.findViewById(R.id.feedAvatarText);
             cheer.setOnClickListener(v -> {
+                // 응원 애니메이션: 버튼 튕김 + 이모지 폭죽 + 받은 러너 캐릭터 점프
+                CommunityEffects.cheerBurst(this, cheer, avatar);
                 cheer.setText("응원 완료");
                 cheer.setEnabled(false);
                 cheer.setAlpha(0.6f);
@@ -128,13 +133,21 @@ public class CommunityActivity extends BaseActivity {
         }
     }
 
-    /** 반응 칩: 누르면 내 반응이 +1 되고 하늘색, 다시 누르면 취소 */
+    /**
+     * 반응 칩: 누르면 내 반응이 +1 되고 하늘색, 다시 누르면 취소.
+     * 누를 때 해당 이모지가 칩 위로 떠오르는 애니메이션이 나온다.
+     */
     private void bindReaction(TextView chip, String emoji, int baseCount) {
         chip.setText(emoji + " " + baseCount);
         chip.setOnClickListener(v -> {
             boolean mine = !chip.isSelected();
             chip.setSelected(mine);
             chip.setText(emoji + " " + (baseCount + (mine ? 1 : 0)));
+            if (mine) {
+                CommunityEffects.reactionPop(this, chip, emoji);
+            } else {
+                CommunityEffects.reactionCancel(chip);
+            }
         });
     }
 
