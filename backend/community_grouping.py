@@ -99,6 +99,48 @@ def get_three_month_range(group_month: date) -> tuple[int, int]:
 
     return start_ms, end_ms
 
+def get_midmonth_range(
+    application_time: datetime | None = None,
+) -> tuple[int, int]:
+    """
+    월중 참가 신청 시점 기준으로
+    직전 3개월의 시작일부터 신청 시점까지의 범위를 반환한다.
+
+    예: 2026-11-21 신청
+        시작: 2026-08-01 00:00:00 KST
+        종료: 2026-11-21 신청 시점
+    """
+
+    if application_time is None:
+        application_time = datetime.now(KST)
+
+    elif application_time.tzinfo is None:
+        application_time = application_time.replace(tzinfo=KST)
+
+    else:
+        application_time = application_time.astimezone(KST)
+
+    month_index = (
+        application_time.year * 12
+        + application_time.month - 1 - 3
+    )
+
+    start_year = month_index // 12
+    start_month = month_index % 12 + 1
+
+    start_date = date(start_year, start_month, 1)
+
+    start_datetime = datetime.combine(
+        start_date,
+        time.min,
+        tzinfo=KST,
+    )
+
+    start_ms = int(start_datetime.timestamp() * 1000)
+    end_ms = int(application_time.timestamp() * 1000)
+
+    return start_ms, end_ms
+
 def fetch_grouping_candidates(
     cur,
     group_month: date,
@@ -148,6 +190,234 @@ def fetch_grouping_candidates(
     )
 
     return cur.fetchall()
+
+def fetch_midmonth_user_features(
+    cur,
+    user_ids: list[str],
+    application_time: datetime | None = None,
+) -> list[dict]:
+    """
+    월중 참가 매칭에 필요한 사용자 특징값을 조회한다.
+
+    - 신청 시점 기준 직전 3개월부터 현재까지의 러닝 기록
+    - 유효 러닝 기록 3회 이상
+    - 보유 캐릭터 총 레벨
+    - 평균 페이스
+    """
+
+    if not user_ids:
+        return []
+
+    start_ms, end_ms = get_midmonth_range(application_time)
+
+    placeholders = ", ".join(["%s"] * len(user_ids))
+
+    query = f"""
+        WITH running_features AS (
+            SELECT
+                user_id,
+                COUNT(*) AS run_count,
+                SUM(distance) AS total_distance,
+                SUM(duration) AS total_duration
+            FROM running_record
+            WHERE run_date >= %s
+              AND run_date <= %s
+              AND distance > 0
+              AND duration > 0
+              AND user_id IN ({placeholders})
+            GROUP BY user_id
+        ),
+        character_features AS (
+            SELECT
+                user_id,
+                SUM(level) AS total_level
+            FROM user_character
+            WHERE user_id IN ({placeholders})
+            GROUP BY user_id
+        )
+        SELECT
+            r.user_id,
+            r.run_count,
+            COALESCE(c.total_level, 0) AS total_level,
+            r.total_duration / (r.total_distance / 1000)
+                AS average_pace
+        FROM running_features r
+        LEFT JOIN character_features c
+            ON r.user_id = c.user_id
+        ORDER BY r.user_id
+    """
+
+    params = (
+        [start_ms, end_ms]
+        + user_ids
+        + user_ids
+    )
+
+    cur.execute(query, params)
+
+    return cur.fetchall()
+
+def fetch_current_month_groups(
+    cur,
+    group_month: date,
+) -> list[dict]:
+    """
+    해당 월에 생성된 그룹과 그룹원 목록을 조회한다.
+
+    그룹 정보와 그룹원 정보를 함께 가져오며,
+    그룹 행에 FOR UPDATE를 적용해 동시 변경을 방지한다.
+    """
+
+    cur.execute(
+        """
+        SELECT
+            g.group_id,
+            g.group_number,
+            g.member_count,
+            m.user_id
+        FROM community_group g
+        LEFT JOIN community_group_member m
+            ON g.group_id = m.group_id
+           AND g.group_month = m.group_month
+        WHERE g.group_month = %s
+        ORDER BY g.group_number, m.user_id
+        FOR UPDATE
+        """,
+        (group_month,),
+    )
+
+    rows = cur.fetchall()
+
+    groups_by_id = {}
+
+    for row in rows:
+        group_id = row["group_id"]
+
+        if group_id not in groups_by_id:
+            groups_by_id[group_id] = {
+                "group_id": group_id,
+                "group_number": row["group_number"],
+                "member_count": row["member_count"],
+                "members": [],
+            }
+
+        # 그룹에 실제 참가자가 있는 경우에만 추가한다.
+        if row["user_id"] is not None:
+            groups_by_id[group_id]["members"].append({
+                "user_id": row["user_id"],
+            })
+
+    return list(groups_by_id.values())
+
+def calculate_group_features(
+    group_members: list[dict],
+    user_features: list[dict],
+) -> dict | None:
+    """
+    기존 그룹원들의 특징값 평균으로 그룹 특징값을 계산한다.
+
+    러닝 기록이 없는 그룹원은 특징값 계산에서 제외한다.
+    """
+
+    feature_by_user = {
+        str(user["user_id"]): user
+        for user in user_features
+    }
+
+    matched_members = [
+        feature_by_user[str(member["user_id"])]
+        for member in group_members
+        if str(member["user_id"]) in feature_by_user
+    ]
+
+    if not matched_members:
+        return None
+
+    average_level = sum(
+        float(user["total_level"])
+        for user in matched_members
+    ) / len(matched_members)
+
+    average_pace = sum(
+        float(user["average_pace"])
+        for user in matched_members
+    ) / len(matched_members)
+
+    return {
+        "total_level": average_level,
+        "average_pace": average_pace,
+        "feature_member_count": len(matched_members),
+    }
+
+def select_best_group(
+    applicant_features: dict,
+    groups: list[dict],
+    user_features: list[dict],
+) -> dict | None:
+    """
+    신규 참가자와 가장 유사한 기존 그룹을 선택한다.
+
+    - 정원이 남아 있는 그룹만 비교한다.
+    - 그룹원들의 평균 특징값을 그룹 대표값으로 사용한다.
+    - 신규 참가자와 그룹 대표값을 동일한 기준으로 정규화한다.
+    - 거리가 가장 가까운 그룹을 반환한다.
+
+    적합한 그룹이 없으면 None을 반환한다.
+    """
+
+    group_candidates = []
+
+    for group in groups:
+
+        # 정원이 가득 찬 그룹은 제외한다.
+        if group["member_count"] >= MAX_GROUP_SIZE:
+            continue
+
+        group_features = calculate_group_features(
+            group["members"],
+            user_features,
+        )
+
+        # 특징값을 계산할 수 없는 그룹은 제외한다.
+        if group_features is None:
+            continue
+
+        group_candidates.append({
+            "user_id": f"group_{group['group_id']}",
+            "total_level": group_features["total_level"],
+            "average_pace": group_features["average_pace"],
+            "group_id": group["group_id"],
+            "group_number": group["group_number"],
+            "member_count": group["member_count"],
+        })
+
+    if not group_candidates:
+        return None
+
+    # 신규 참가자와 그룹 대표값을 함께 정규화한다.
+    comparison_candidates = normalize_features(
+        group_candidates + [{
+            "user_id": str(applicant_features["user_id"]),
+            "total_level": applicant_features["total_level"],
+            "average_pace": applicant_features["average_pace"],
+        }]
+    )
+
+    normalized_groups = comparison_candidates[:-1]
+    normalized_applicant = comparison_candidates[-1]
+
+    # 신규 참가자와 각 그룹 사이의 거리 계산
+    for group in normalized_groups:
+        group["distance"] = calculate_distance(
+            normalized_applicant,
+            group,
+        )
+
+    # 거리가 가장 가까운 그룹 선택
+    return min(
+        normalized_groups,
+        key=lambda group: group["distance"],
+    )
 
 def count_excluded_users(cur, group_month):
     """
@@ -1065,18 +1335,88 @@ def run_monthly_grouping(
 ) -> dict:
     """
     월별 그룹핑 전체 과정을 실행한다.
+
+    - MySQL Named Lock으로 동시 실행 방지
+    - AUTO 실행은 이미 성공한 월이면 건너뛴다.
+    - ADMIN 실행은 기존처럼 재실행을 허용한다.
+    - 실행 이력은 기존 정책대로 보존한다.
     """
+
     if group_month.day != 1:
         raise ValueError("group_month는 해당 월의 1일이어야 합니다.")
+
+    if execution_type not in ("ADMIN", "AUTO"):
+        raise ValueError("실행 유형은 ADMIN 또는 AUTO여야 합니다.")
 
     conn = get_db_connection()
     history_id = None
 
-    try:
-        with conn.cursor() as cur:
-            candidates = fetch_grouping_candidates(cur, group_month)
-            excluded_count = count_excluded_users(cur, group_month)
+    # 월별 고유 잠금 이름
+    lock_name = f"runcatch_grouping_{group_month:%Y_%m}"
+    lock_acquired = False
 
+    try:
+        # 1. 해당 월의 그룹핑 잠금 획득
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT GET_LOCK(%s, 0) AS lock_result",
+                (lock_name,),
+            )
+            lock_result = cur.fetchone()["lock_result"]
+
+        if lock_result != 1:
+            raise ValueError(
+                f"{group_month:%Y-%m} 그룹핑이 이미 실행 중입니다."
+            )
+
+        lock_acquired = True
+
+        # 2. AUTO 실행이면 이미 성공한 이력이 있는지 확인
+        if execution_type == "AUTO":
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        history_id,
+                        target_count,
+                        excluded_count,
+                        group_count
+                    FROM community_grouping_history
+                    WHERE group_month = %s
+                      AND status = 'SUCCESS'
+                    ORDER BY finished_at DESC, history_id DESC
+                    LIMIT 1
+                    """,
+                    (group_month,),
+                )
+
+                existing = cur.fetchone()
+
+            # 이미 성공한 그룹핑이 있다면 실행하지 않는다.
+            if existing:
+                return {
+                    "history_id": existing["history_id"],
+                    "group_month": group_month,
+                    "status": "SKIPPED",
+                    "target_count": existing["target_count"],
+                    "excluded_count": existing["excluded_count"],
+                    "group_count": existing["group_count"],
+                    "message": "이미 해당 월의 그룹핑이 성공적으로 실행되었습니다.",
+                }
+
+        # 3. 그룹핑 대상자 조회
+        with conn.cursor() as cur:
+            candidates = fetch_grouping_candidates(
+                cur,
+                group_month,
+            )
+
+            excluded_count = count_excluded_users(
+                cur,
+                group_month,
+            )
+
+        # 4. 그룹핑 실행 이력 생성
         history_id = create_grouping_history(
             conn,
             group_month,
@@ -1085,10 +1425,12 @@ def run_monthly_grouping(
             excluded_count,
         )
 
+        # 5. 그룹핑 알고리즘 실행
         normalized_candidates, assignments, centroids, capacities = (
             execute_grouping(candidates)
         )
 
+        # 6. 그룹핑 결과 저장
         save_grouping_result(
             conn,
             group_month,
@@ -1108,8 +1450,10 @@ def run_monthly_grouping(
         }
 
     except Exception as error:
+        # 실행 이력이 생성된 상태에서 오류가 발생하면 FAILED 처리
         if history_id is not None:
             failed_cur = conn.cursor()
+
             try:
                 failed_cur.execute(
                     """
@@ -1127,14 +1471,352 @@ def run_monthly_grouping(
                         history_id,
                     ),
                 )
+
                 conn.commit()
+
             except Exception:
                 conn.rollback()
+
             finally:
                 failed_cur.close()
+
         raise
 
     finally:
+        # 7. 월별 잠금 해제
+        if lock_acquired:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT RELEASE_LOCK(%s)",
+                        (lock_name,),
+                    )
+            except Exception as lock_error:
+                print(f"그룹핑 잠금 해제 오류: {lock_error}")
+
+        conn.close()
+
+def fetch_latest_successful_history(
+    cur,
+    group_month: date,
+) -> dict | None:
+    """
+    해당 월의 가장 최근 성공한 그룹핑 이력을 조회한다.
+
+    새 그룹을 생성할 때 사용할 history_id를 가져온다.
+    """
+
+    cur.execute(
+        """
+        SELECT
+            history_id,
+            group_count
+        FROM community_grouping_history
+        WHERE group_month = %s
+          AND status = 'SUCCESS'
+        ORDER BY finished_at DESC, history_id DESC
+        LIMIT 1
+        FOR UPDATE
+        """,
+        (group_month,),
+    )
+
+    return cur.fetchone()
+
+def join_monthly_group(
+    user_id: str,
+    application_time: datetime | None = None,
+) -> dict:
+    """
+    월중 참가 신청자를 기존 그룹에 배정한다.
+
+    - 유효 러닝 기록이 3회 이상인 사용자만 참가 가능
+    - 가장 유사한 기존 그룹에 배정
+    - 모든 그룹이 가득 찬 경우 새 그룹 생성
+    - 기존 그룹원은 재배정하지 않음
+    """
+
+    # 1. 신청 시각을 한국 시간으로 통일한다.
+    if application_time is None:
+        application_time = datetime.now(KST)
+
+    elif application_time.tzinfo is None:
+        application_time = application_time.replace(tzinfo=KST)
+
+    else:
+        application_time = application_time.astimezone(KST)
+
+    group_month = application_time.date().replace(day=1)
+
+    conn = get_db_connection()
+
+    lock_name = f"runcatch_grouping_{group_month:%Y_%m}"
+    lock_acquired = False
+
+    try:
+        # 2. 월별 그룹핑 잠금 획득
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT GET_LOCK(%s, 0) AS lock_result",
+                (lock_name,),
+            )
+
+            lock_result = cur.fetchone()["lock_result"]
+
+        if lock_result != 1:
+            raise ValueError("현재 해당 월의 그룹핑 작업이 진행 중입니다.")
+
+        lock_acquired = True
+
+        conn.begin()
+
+        with conn.cursor() as cur:
+
+            # 3. 이미 해당 월에 참가한 사용자인지 확인
+            cur.execute(
+                """
+                SELECT group_id
+                FROM community_group_member
+                WHERE user_id = %s
+                  AND group_month = %s
+                FOR UPDATE
+                """,
+                (user_id, group_month),
+            )
+
+            if cur.fetchone() is not None:
+                raise ValueError("이미 해당 월의 그룹에 참가한 사용자입니다.")
+
+            # 4. 해당 월의 성공한 그룹핑 이력 조회
+            history = fetch_latest_successful_history(
+                cur,
+                group_month,
+            )
+
+            if history is None:
+                raise ValueError("해당 월에 성공한 그룹핑 이력이 없습니다.")
+
+            # 5. 기존 그룹과 그룹원 조회
+            groups = fetch_current_month_groups(
+                cur,
+                group_month,
+            )
+
+            if not groups:
+                raise ValueError("해당 월에 생성된 그룹이 없습니다.")
+
+            # 6. 기존 그룹원과 신청자의 특징값 조회
+            existing_user_ids = [
+                member["user_id"]
+                for group in groups
+                for member in group["members"]
+            ]
+
+            all_user_ids = list(dict.fromkeys(
+                existing_user_ids + [user_id]
+            ))
+
+            user_features = fetch_midmonth_user_features(
+                cur,
+                all_user_ids,
+                application_time,
+            )
+
+            # 7. 신청자의 참가 자격 확인
+            applicant = next(
+                (
+                    user
+                    for user in user_features
+                    if str(user["user_id"]) == str(user_id)
+                ),
+                None,
+            )
+
+            if applicant is None or applicant["run_count"] < 3:
+                raise ValueError(
+                    "최근 3개월 동안 유효한 러닝 기록이 3회 이상이어야 합니다."
+                )
+
+            applicant_features = {
+                "user_id": user_id,
+                "total_level": float(applicant["total_level"]),
+                "average_pace": float(applicant["average_pace"]),
+            }
+
+            # 8. 가장 유사한 기존 그룹 선택
+            selected_group = select_best_group(
+                applicant_features,
+                groups,
+                user_features,
+            )
+
+            # 9. 기존 그룹에 빈자리가 있지만
+            # 비교 가능한 그룹이 없다면 새 그룹을 만들지 않는다.
+            has_available_group = any(
+                group["member_count"] < MAX_GROUP_SIZE
+                for group in groups
+            )
+
+            if selected_group is None and has_available_group:
+                raise ValueError(
+                    "비교 가능한 기존 그룹이 없어 참가자를 배정할 수 없습니다."
+                )
+
+            now = datetime.now(KST).replace(tzinfo=None)
+
+            # 10. 기존 그룹에 배정
+            if selected_group is not None:
+
+                group_id = selected_group["group_id"]
+
+                cur.execute(
+                    """
+                    UPDATE community_group
+                    SET member_count = member_count + 1
+                    WHERE group_id = %s
+                      AND group_month = %s
+                      AND member_count < %s
+                    """,
+                    (
+                        group_id,
+                        group_month,
+                        MAX_GROUP_SIZE,
+                    ),
+                )
+
+                if cur.rowcount != 1:
+                    raise ValueError("그룹 정원을 변경할 수 없습니다.")
+
+                cur.execute(
+                    """
+                    INSERT INTO community_group_member (
+                        group_id,
+                        user_id,
+                        group_month,
+                        assigned_at
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        group_id,
+                        user_id,
+                        group_month,
+                        now,
+                    ),
+                )
+
+                result = {
+                    "user_id": user_id,
+                    "group_id": group_id,
+                    "group_number": selected_group["group_number"],
+                    "member_count": selected_group["member_count"] + 1,
+                    "created_new_group": False,
+                    "status": "SUCCESS",
+                }
+
+            # 11. 모든 기존 그룹이 가득 찬 경우 새 그룹 생성
+            else:
+
+                group_number = max(
+                    group["group_number"]
+                    for group in groups
+                ) + 1
+
+                cur.execute(
+                    """
+                    INSERT INTO community_group (
+                        history_id,
+                        group_month,
+                        group_number,
+                        member_count,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, 1, %s)
+                    """,
+                    (
+                        history["history_id"],
+                        group_month,
+                        group_number,
+                        now,
+                    ),
+                )
+
+                group_id = cur.lastrowid
+
+                cur.execute(
+                    """
+                    INSERT INTO community_group_member (
+                        group_id,
+                        user_id,
+                        group_month,
+                        assigned_at
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        group_id,
+                        user_id,
+                        group_month,
+                        now,
+                    ),
+                )
+
+                # 실제 그룹 개수를 다시 조회한다.
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS group_count
+                    FROM community_group
+                    WHERE group_month = %s
+                    """,
+                    (group_month,),
+                )
+
+                new_group_count = cur.fetchone()["group_count"]
+
+                # 가장 최근 성공 이력의 그룹 개수 갱신
+                cur.execute(
+                    """
+                    UPDATE community_grouping_history
+                    SET group_count = %s
+                    WHERE history_id = %s
+                      AND status = 'SUCCESS'
+                    """,
+                    (
+                        new_group_count,
+                        history["history_id"],
+                    ),
+                )
+
+                result = {
+                    "user_id": user_id,
+                    "group_id": group_id,
+                    "group_number": group_number,
+                    "member_count": 1,
+                    "created_new_group": True,
+                    "status": "SUCCESS",
+                }
+
+        # 12. 모든 변경 사항 확정
+        conn.commit()
+
+        return result
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        # 13. 월별 잠금 해제
+        if lock_acquired:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT RELEASE_LOCK(%s)",
+                        (lock_name,),
+                    )
+            except Exception as lock_error:
+                print(f"그룹핑 잠금 해제 오류: {lock_error}")
+
         conn.close()
 
 if __name__ == "__main__":

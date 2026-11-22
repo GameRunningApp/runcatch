@@ -5,8 +5,12 @@ from typing import Literal, Optional
 import pymysql
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from community_grouping_api import router as community_grouping_router
+from community_grouping import run_monthly_grouping
 
 # 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)
 DB_CONFIG = {
@@ -26,7 +30,49 @@ EXP_PER_LEVEL = 5000
 # 4: running_record에 environment(러닝 환경) 추가
 SCHEMA_VERSION = 4
 
-app = FastAPI()
+KST = ZoneInfo("Asia/Seoul")
+
+
+def run_scheduled_grouping():
+    now = datetime.now(KST)
+    group_month = date(now.year, now.month, 1)
+
+    try:
+        result = run_monthly_grouping(group_month, "AUTO")
+        print(f"[CommunityGroupingScheduler] {result}")
+    except Exception as error:
+        print(f"[CommunityGroupingScheduler] 실행 실패: {error}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler = AsyncIOScheduler(timezone=KST)
+
+    scheduler.add_job(
+        run_scheduled_grouping,
+        trigger="cron",
+        day=1,
+        hour=5,
+        minute=0,
+        id="monthly_community_grouping",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    scheduler.start()
+    app.state.scheduler = scheduler
+
+    print("[CommunityGroupingScheduler] 매월 1일 05:00 자동 실행 등록 완료")
+
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
+        print("[CommunityGroupingScheduler] 스케줄러 종료")
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(community_grouping_router)
 
