@@ -11,6 +11,7 @@ import android.widget.Toast;
 import android.util.Log;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -20,7 +21,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,10 +32,10 @@ public class CommunityActivity extends BaseActivity {
     // 에뮬레이터에서 PC의 로컬 백엔드에 접속하는 주소
     private static final String BASE_URL = "http://127.0.0.1:8000";
 
-    // 로그인 기능 구현 전 테스트 계정
-    private static final String TEST_USER_ID = "midmonth_unjoined_test";
+    // 그룹에 가입되지 않은 테스트 계정
+//    private static final String TEST_USER_ID = "community_unjoined_test";
     //그룹에 가입된 테스트 계정
-//    private static final String TEST_USER_ID = "midmonth_applicant";
+    private static final String TEST_USER_ID = "community_joined_test";
 
     private TextView[] tabs;
     private View[] sections;
@@ -68,8 +68,6 @@ public class CommunityActivity extends BaseActivity {
 
         bindGroup();
         setupTabs();
-        bindFeed();
-        bindLeague();
         bindRaid();
 
         // 서버에서 실제 그룹 정보 조회
@@ -199,6 +197,9 @@ public class CommunityActivity extends BaseActivity {
                     formatPace(maxPace),
                     memberCount));
         }
+
+        bindFeed();
+        bindLeague();
     }
 
     // 가입되지 않은 상태 표시
@@ -359,68 +360,212 @@ public class CommunityActivity extends BaseActivity {
     // ===== 피드 =====
 
     private void bindFeed() {
+        requestFeed();
+    }
+
+    // 서버에서 그룹 피드 조회
+    private void requestFeed() {
+        networkExecutor.execute(() -> {
+            HttpURLConnection connection = null;
+
+            try {
+                URL url = new URL(
+                        BASE_URL + "/community-groups/" + TEST_USER_ID + "/feed"
+                );
+
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+
+                int responseCode = connection.getResponseCode();
+
+                InputStream responseStream = responseCode >= 200 && responseCode < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
+
+                if (responseStream == null) {
+                    throw new Exception("피드 응답을 읽을 수 없습니다.");
+                }
+
+                String response = readResponse(responseStream);
+
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    throw new Exception("피드 조회 실패: " + responseCode);
+                }
+
+                JSONObject json = new JSONObject(response);
+
+                if (!json.optBoolean("is_joined", false)) {
+                    return;
+                }
+
+                JSONArray posts = json.optJSONArray("posts");
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    renderFeed(posts);
+                });
+
+            } catch (Exception e) {
+                Log.e("CommunityActivity", "피드 조회 실패", e);
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+
+                    Toast.makeText(this,
+                            "피드를 불러오지 못했습니다: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        });
+    }
+
+    // 서버에서 받은 게시글을 화면에 표시
+    private void renderFeed(JSONArray posts) {
         LinearLayout feedList = findViewById(R.id.feedList);
         feedList.removeAllViews();
 
+        if (posts == null) return;
+
         LayoutInflater inflater = LayoutInflater.from(this);
 
-        for (CommunityDummyData.FeedPost post : CommunityDummyData.feed()) {
+        int displayCount = Math.min(posts.length(), 10);
+
+        for (int i = 0; i < displayCount; i++) {
+            JSONObject post = posts.optJSONObject(i);
+
+            if (post == null) continue;
+
             View item = inflater.inflate(
                     R.layout.item_feed_post, feedList, false
             );
 
+            String emoji = post.optString("character_emoji", "🐥");
+            String nickname = post.optString("nickname", "러너");
+            int level = post.optInt("level", 1);
+
+            String postUserId = post.optString("user_id", "");
+            boolean isMyPost = TEST_USER_ID.equals(postUserId);
+
+            long runDate = post.optLong("run_date", 0);
+
+            double distanceKm = post.optDouble("distance_km", 0);
+            double durationSec = post.optDouble("duration_sec", 0);
+            double paceSec = post.optDouble("pace_sec", 0);
+
+            int clapCount = post.optInt("clap_count", 0);
+            int fireCount = post.optInt("fire_count", 0);
+            int muscleCount = post.optInt("muscle_count", 0);
+
             ((TextView) item.findViewById(R.id.feedAvatarText))
-                    .setText(post.emoji);
+                    .setText(emoji);
 
             ((TextView) item.findViewById(R.id.feedNameText))
-                    .setText(post.nickname);
+                    .setText(nickname);
 
             ((TextView) item.findViewById(R.id.feedLevelText))
-                    .setText("LV." + post.level);
+                    .setText("LV." + level);
 
             ((TextView) item.findViewById(R.id.feedTimeText))
-                    .setText(post.timeAgo);
+                    .setText(formatTimeAgo(runDate));
 
             ((TextView) item.findViewById(R.id.feedDistanceText))
                     .setText(String.format(Locale.US,
-                            "%.1f km", post.distanceKm));
+                            "%.1f km", distanceKm));
 
             ((TextView) item.findViewById(R.id.feedDurationText))
-                    .setText(CommunityDummyData.formatDuration(
-                            post.durationSec));
+                    .setText(CommunityDummyData.formatDuration((int) Math.round(durationSec)));
 
             ((TextView) item.findViewById(R.id.feedPaceText))
-                    .setText(CommunityDummyData.formatPace(post.paceSec()));
+                    .setText(CommunityDummyData.formatPace((int) Math.round(paceSec)));
 
             TextView clap = item.findViewById(R.id.feedClapChip);
             TextView fire = item.findViewById(R.id.feedFireChip);
             TextView muscle = item.findViewById(R.id.feedMuscleChip);
 
-            bindReaction(clap, "👏", post.clapCount);
-            bindReaction(fire, "🔥", post.fireCount);
-            bindReaction(muscle, "💪", post.muscleCount);
+            bindReaction(clap, "👏", clapCount, !isMyPost);
+            bindReaction(fire, "🔥", fireCount, !isMyPost);
+            bindReaction(muscle, "💪", muscleCount, !isMyPost);
 
             TextView cheer = item.findViewById(R.id.feedCheerButton);
             View avatar = item.findViewById(R.id.feedAvatarText);
 
-            cheer.setOnClickListener(v -> {
-                CommunityEffects.cheerBurst(this, cheer, avatar);
-                cheer.setText("응원 완료");
-                cheer.setEnabled(false);
-                cheer.setAlpha(0.6f);
+            if (isMyPost) {
+                cheer.setVisibility(View.GONE);
+            } else {
+                cheer.setVisibility(View.VISIBLE);
 
-                Toast.makeText(this,
-                        post.nickname + "님에게 응원을 보냈어요",
-                        Toast.LENGTH_SHORT).show();
-            });
+                cheer.setOnClickListener(v -> {
+                    CommunityEffects.cheerBurst(this, cheer, avatar);
+
+                    cheer.setText("응원 완료");
+                    cheer.setEnabled(false);
+                    cheer.setAlpha(0.6f);
+
+                    Toast.makeText(this,
+                            nickname + "님에게 응원을 보냈어요",
+                            Toast.LENGTH_SHORT).show();
+                });
+            }
 
             feedList.addView(item);
         }
     }
 
+    // Unix timestamp(ms)를 상대 시간으로 변환
+    private String formatTimeAgo(long timestamp) {
+        if (timestamp <= 0) {
+            return "";
+        }
+
+        long diff = System.currentTimeMillis() - timestamp;
+
+        if (diff < 0) {
+            return "방금 전";
+        }
+
+        long minutes = diff / (60 * 1000);
+        long hours = diff / (60 * 60 * 1000);
+        long days = diff / (24 * 60 * 60 * 1000);
+
+        if (minutes < 1) {
+            return "방금 전";
+        } else if (minutes < 60) {
+            return minutes + "분 전";
+        } else if (hours < 24) {
+            return hours + "시간 전";
+        } else if (days < 30) {
+            return days + "일 전";
+        } else {
+            Calendar date = Calendar.getInstance();
+            date.setTimeInMillis(timestamp);
+
+            return String.format(Locale.KOREA,
+                    "%d월 %d일",
+                    date.get(Calendar.MONTH) + 1,
+                    date.get(Calendar.DAY_OF_MONTH));
+        }
+    }
+
     // 반응 칩
-    private void bindReaction(TextView chip, String emoji, int baseCount) {
+    private void bindReaction(TextView chip, String emoji, int baseCount,
+                              boolean canReact) {
+
         chip.setText(emoji + " " + baseCount);
+
+        if (!canReact) {
+            chip.setOnClickListener(null);
+            chip.setClickable(false);
+            return;
+        }
+
+        chip.setClickable(true);
 
         chip.setOnClickListener(v -> {
             boolean mine = !chip.isSelected();
@@ -453,16 +598,96 @@ public class CommunityActivity extends BaseActivity {
                 .setText("D-" + dDay + " · "
                         + month + "월 " + lastDay + "일 마감");
 
-        List<CommunityDummyData.LeagueRank> ranks =
-                CommunityDummyData.league();
+        requestLeague();
+    }
 
+    // 서버에서 월간 랭킹 조회
+    private void requestLeague() {
+        networkExecutor.execute(() -> {
+            HttpURLConnection connection = null;
+
+            try {
+                URL url = new URL(
+                        BASE_URL + "/community-groups/" + TEST_USER_ID + "/league"
+                );
+
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+
+                int responseCode = connection.getResponseCode();
+
+                InputStream responseStream = responseCode >= 200 && responseCode < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
+
+                if (responseStream == null) {
+                    throw new Exception("랭킹 응답을 읽을 수 없습니다.");
+                }
+
+                String response = readResponse(responseStream);
+
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    throw new Exception("랭킹 조회 실패: " + responseCode);
+                }
+
+                JSONObject json = new JSONObject(response);
+
+                if (!json.optBoolean("is_joined", false)) {
+                    return;
+                }
+
+                JSONArray rankings = json.optJSONArray("rankings");
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    renderLeague(rankings);
+                });
+
+            } catch (Exception e) {
+                Log.e("CommunityActivity", "랭킹 조회 실패", e);
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+
+                    Toast.makeText(this,
+                            "랭킹을 불러오지 못했습니다: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        });
+    }
+
+    // 서버에서 받은 랭킹을 화면에 표시
+    private void renderLeague(JSONArray rankings) {
         LinearLayout leagueList = findViewById(R.id.leagueList);
         leagueList.removeAllViews();
 
+        if (rankings == null) return;
+
         LayoutInflater inflater = LayoutInflater.from(this);
 
-        for (int i = 0; i < ranks.size(); i++) {
-            CommunityDummyData.LeagueRank rank = ranks.get(i);
+        for (int i = 0; i < rankings.length(); i++) {
+            JSONObject rank = rankings.optJSONObject(i);
+
+            if (rank == null) continue;
+
+            int rankNumber = rank.optInt("rank", i + 1);
+
+            String emoji = rank.optString("character_emoji", "🐥");
+            String nickname = rank.optString("nickname", "러너");
+
+            int level = rank.optInt("level", 1);
+            double distanceKm = rank.optDouble("distance_km", 0);
+
+            boolean isMe = rank.optBoolean("is_me", false);
+            int streakDays = rank.optInt("streak_days", 0);
 
             View row = inflater.inflate(
                     R.layout.item_league_rank, leagueList, false
@@ -470,43 +695,44 @@ public class CommunityActivity extends BaseActivity {
 
             TextView number = row.findViewById(R.id.rankNumberText);
 
-            if (i < MEDALS.length) {
-                number.setText(MEDALS[i]);
+            if (rankNumber >= 1 && rankNumber <= MEDALS.length) {
+                number.setText(MEDALS[rankNumber - 1]);
             } else {
-                number.setText(String.valueOf(i + 1));
+                number.setText(String.valueOf(rankNumber));
             }
 
             ((TextView) row.findViewById(R.id.rankAvatarText))
-                    .setText(rank.emoji);
+                    .setText(emoji);
 
             ((TextView) row.findViewById(R.id.rankNameText))
-                    .setText(rank.nickname);
+                    .setText(nickname);
 
             ((TextView) row.findViewById(R.id.rankLevelText))
-                    .setText("LV." + rank.level);
+                    .setText("LV." + level);
 
             ((TextView) row.findViewById(R.id.rankDistanceText))
                     .setText(String.format(Locale.US,
-                            "%.1f km", rank.distanceKm));
+                            "%.1f km", distanceKm));
 
-            if (rank.isMe) {
+            TextView streak = row.findViewById(R.id.rankStreakText);
+            streak.setVisibility(View.GONE);
+
+            if (streakDays > 0) {
+                streak.setText("🔥" + streakDays + "일");
+                streak.setVisibility(View.VISIBLE);
+            }
+
+            if (isMe) {
                 row.setBackgroundResource(R.drawable.bg_rank_me);
-
-                TextView streak = row.findViewById(R.id.rankStreakText);
-
-                if (rank.streakDays > 0) {
-                    streak.setText("🔥" + rank.streakDays + "일");
-                    streak.setVisibility(View.VISIBLE);
-                }
 
                 ((TextView) findViewById(R.id.myRankText)).setText(
                         String.format(Locale.US, "%d위 / %d명",
-                                i + 1, CommunityDummyData.GROUP.memberCount)
+                                rankNumber, rankings.length())
                 );
 
                 ((TextView) findViewById(R.id.myLeagueDistanceText))
                         .setText(String.format(Locale.US,
-                                "%.1f km", rank.distanceKm));
+                                "%.1f km", distanceKm));
             }
 
             leagueList.addView(row);
