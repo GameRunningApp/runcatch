@@ -129,27 +129,51 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/feedClapChip"
-            style="@style/ReactionChip"
-            android:text="👏 0" />
-
-        <TextView
-            android:id="@+id/feedFireChip"
-            style="@style/ReactionChip"
-            android:layout_marginStart="6dp"
-            android:text="🔥 0" />
-
-        <TextView
-            android:id="@+id/feedMuscleChip"
-            style="@style/ReactionChip"
-            android:layout_marginStart="6dp"
-            android:text="💪 0" />
-
-        <View
+        <!-- 반응이 많아지면 가로로 스크롤 -->
+        <HorizontalScrollView
+            android:id="@+id/feedReactionScroll"
             android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/feedReactionRow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/feedClapChip"
+                    style="@style/ReactionChip"
+                    android:text="👏 0" />
+
+                <TextView
+                    android:id="@+id/feedFireChip"
+                    style="@style/ReactionChip"
+                    android:layout_marginStart="6dp"
+                    android:text="🔥 0" />
+
+                <TextView
+                    android:id="@+id/feedMuscleChip"
+                    style="@style/ReactionChip"
+                    android:layout_marginStart="6dp"
+                    android:text="💪 0" />
+
+                <!-- 누르면 휴대폰 전체 이모지 선택창 -->
+                <TextView
+                    android:id="@+id/feedAddReactionChip"
+                    style="@style/ReactionChip"
+                    android:layout_marginStart="6dp"
+                    android:contentDescription="이모지 반응 추가"
+                    android:text="＋"
+                    android:textColor="@color/text_secondary" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
 
         <TextView
             android:id="@+id/feedCheerButton"
