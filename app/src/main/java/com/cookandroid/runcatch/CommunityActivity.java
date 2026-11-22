@@ -3,10 +3,17 @@ package com.cookandroid.runcatch;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.emoji2.emojipicker.EmojiPickerView;
+
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.util.Calendar;
 import java.util.List;
@@ -117,6 +124,13 @@ public class CommunityActivity extends BaseActivity {
             bindReaction(fire, "🔥", post.fireCount);
             bindReaction(muscle, "💪", post.muscleCount);
 
+            // "+" : 휴대폰 전체 이모지에서 골라 반응 보내기
+            HorizontalScrollView reactionScroll = item.findViewById(R.id.feedReactionScroll);
+            LinearLayout reactionRow = item.findViewById(R.id.feedReactionRow);
+            View addChip = item.findViewById(R.id.feedAddReactionChip);
+            addChip.setOnClickListener(v -> showEmojiPicker(emoji ->
+                    sendCustomReaction(reactionScroll, reactionRow, addChip, emoji)));
+
             TextView cheer = item.findViewById(R.id.feedCheerButton);
             View avatar = item.findViewById(R.id.feedAvatarText);
             cheer.setOnClickListener(v -> {
@@ -138,6 +152,12 @@ public class CommunityActivity extends BaseActivity {
      * 누를 때 해당 이모지가 칩 위로 떠오르는 애니메이션이 나온다.
      */
     private void bindReaction(TextView chip, String emoji, int baseCount) {
+        bindReaction(chip, emoji, baseCount, false);
+    }
+
+    /** removable : "+"로 새로 만든 칩이면 true → 취소해서 0개가 되면 칩을 없앰 */
+    private void bindReaction(TextView chip, String emoji, int baseCount, boolean removable) {
+        chip.setTag(emoji);   // 같은 이모지 칩을 찾을 때 사용
         chip.setText(emoji + " " + baseCount);
         chip.setOnClickListener(v -> {
             boolean mine = !chip.isSelected();
@@ -147,8 +167,70 @@ public class CommunityActivity extends BaseActivity {
                 CommunityEffects.reactionPop(this, chip, emoji);
             } else {
                 CommunityEffects.reactionCancel(chip);
+                // "+"로 내가 추가한 이모지라서 0개가 되면 칩을 없앰
+                if (removable && baseCount == 0) {
+                    chip.setOnClickListener(null);
+                    chip.postDelayed(() -> {
+                        ViewGroup parent = (ViewGroup) chip.getParent();
+                        if (parent != null) parent.removeView(chip);
+                    }, 250);
+                }
             }
         });
+    }
+
+    // ===== 이모지 선택창 ("+" 칩) =====
+
+    private interface OnEmojiChosen {
+        void onChosen(String emoji);
+    }
+
+    /** 아래에서 올라오는 창에 휴대폰 전체 이모지(EmojiPickerView)를 띄우고, 고르면 닫음 */
+    private void showEmojiPicker(OnEmojiChosen listener) {
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View sheet = LayoutInflater.from(this).inflate(R.layout.dialog_emoji_picker, null, false);
+        EmojiPickerView picker = sheet.findViewById(R.id.emojiPicker);
+        picker.setOnEmojiPickedListener(item -> {
+            dialog.dismiss();
+            listener.onChosen(item.getEmoji());
+        });
+        dialog.setContentView(sheet);
+        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
+        dialog.getBehavior().setSkipCollapsed(true);
+        dialog.show();
+    }
+
+    /**
+     * 고른 이모지로 반응 보내기.
+     * - 카드에 이미 있는 이모지 : 그 칩을 누른 것과 같음 (이미 눌렀으면 애니메이션만 다시)
+     * - 처음 보는 이모지 : "+" 앞에 새 칩을 만들고 1로 시작
+     * TODO(서버): 반응 저장 API가 생기면 여기서 이모지 문자열을 그대로 보내면 됨 (MySQL은 utf8mb4 필요)
+     */
+    private void sendCustomReaction(HorizontalScrollView scroll, LinearLayout row,
+                                    View addChip, String emoji) {
+        TextView chip = row.findViewWithTag(emoji);
+        if (chip == null) {
+            chip = new TextView(this, null, 0, R.style.ReactionChip);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(30));
+            lp.setMarginStart(dp(6));
+            row.addView(chip, row.indexOfChild(addChip), lp);
+            bindReaction(chip, emoji, 0, true);
+        }
+        TextView target = chip;
+        // 새 칩이 화면에 자리를 잡은 뒤 눌러야 애니메이션 위치가 맞음
+        row.post(() -> {
+            scroll.scrollTo(Math.max(0, target.getRight() - scroll.getWidth() + dp(40)), 0);
+            if (target.isSelected()) {
+                CommunityEffects.reactionPop(this, target, emoji);
+            } else {
+                target.performClick();
+            }
+        });
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     // ===== 월간 리그 =====
