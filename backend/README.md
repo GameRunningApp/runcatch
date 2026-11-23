@@ -50,6 +50,13 @@ Swagger(API 테스트): http://127.0.0.1:8000/docs
 | GET | /characters | 전체 캐릭터 목록 (character_id 순) |
 | GET | /users/{user_id}/characters | 내 캐릭터 도감 (레벨, 경험치, 대표 여부) |
 | PUT | /users/{user_id}/main-character/{character_id} | 대표 캐릭터 변경 |
+| GET | /runs/{running_number}/reactions?user_id= | 러닝 기록의 반응(이모지별 개수, 내가 눌렀는지)과 응원 수 |
+| POST | /runs/{running_number}/reactions | 반응 추가 `{user_id, emoji}`. 같은 사람이 같은 이모지는 한 번만 |
+| DELETE | /runs/{running_number}/reactions?user_id=&emoji= | 반응 취소 |
+| POST | /runs/{running_number}/cheer | 응원하기 `{user_id}`. 한 기록에 한 사람당 한 번 |
+
+반응 · 응원 API는 모두 바뀐 뒤의 결과(`reactions`, `cheer_count`, `cheered_by_me`)를 돌려줘서, 앱은 응답으로 칩 숫자를 다시 그리면 됩니다.
+이모지는 휴대폰 전체 이모지를 그대로 저장하기 위해 utf8mb4 + `utf8mb4_bin`(이모지끼리 구분) 컬럼에 저장합니다.
 
 ## 캐릭터 규칙 (임시)
 
