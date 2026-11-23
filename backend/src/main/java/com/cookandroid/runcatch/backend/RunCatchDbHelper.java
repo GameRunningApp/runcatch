@@ -22,7 +22,10 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
     // 3: 도감 v2 캐릭터 id로 변경
     // 4: 처음 시작할 때 캐릭터 없이 시작 (토끼 기본 지급 제거)
     // 5: user_character에 exp(누적 경험치) 추가. 4에서 올라올 때는 기존 데이터를 유지한다
-    private static final int DB_VERSION = 5;
+    // 6: my 페이지 확인용 임시 캐릭터 16~18 지급. 5에서 올라올 때는 기존 데이터를 유지한다
+    private static final int DB_VERSION = 6;
+    // my 페이지 캐릭터 상호작용을 위한 임시 캐릭터
+    private static final int[] TEMP_CHARACTER_IDS = {15, 16, 17, 18};
 
     // TODO(로그인): 닉네임 설정이 붙으면 로그인한 유저의 user_id로 바꾼다
     public static final String CURRENT_USER_ID = "aaa";
@@ -106,20 +109,30 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
         user.put("password", "");
         user.put("character_id", 15);
         db.insert(TABLE_USER, null, user);
+        insertTempCharacters(db);
+    }
 
-        ContentValues owned = new ContentValues();
-        owned.put("user_id", CURRENT_USER_ID);
-        owned.put("character_id", 15);
-        owned.put("acquired_date", System.currentTimeMillis());
-        db.insert(TABLE_USER_CHARACTER, null, owned);
+    /** 임시 캐릭터를 임시 유저에게 지급한다. 이미 있으면 건너뛴다 */
+    private void insertTempCharacters(SQLiteDatabase db) {
+        for (int characterId : TEMP_CHARACTER_IDS) {
+            ContentValues owned = new ContentValues();
+            owned.put("user_id", CURRENT_USER_ID);
+            owned.put("character_id", characterId);
+            owned.put("acquired_date", System.currentTimeMillis());
+            db.insertWithOnConflict(TABLE_USER_CHARACTER, null, owned,
+                    SQLiteDatabase.CONFLICT_IGNORE);
+        }
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // 4 → 5: 경험치 컬럼만 추가 (러닝 기록 · 캐릭터 유지)
-        if (oldVersion == 4 && newVersion == 5) {
-            db.execSQL("ALTER TABLE " + TABLE_USER_CHARACTER
-                    + " ADD COLUMN exp INTEGER NOT NULL DEFAULT 0");
+        // 4 → 5 → 6: 경험치 컬럼 추가 · 임시 캐릭터 지급 (러닝 기록 · 캐릭터 유지)
+        if ((oldVersion == 4 || oldVersion == 5) && newVersion == 6) {
+            if (oldVersion == 4) {
+                db.execSQL("ALTER TABLE " + TABLE_USER_CHARACTER
+                        + " ADD COLUMN exp INTEGER NOT NULL DEFAULT 0");
+            }
+            insertTempCharacters(db);
             return;
         }
         // 개발 단계라 기존 데이터를 지우고 새로 만든다

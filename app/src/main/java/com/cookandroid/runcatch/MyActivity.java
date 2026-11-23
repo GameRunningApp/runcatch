@@ -11,6 +11,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -33,7 +34,9 @@ public class MyActivity extends BaseActivity {
     private static final float NEAR_SCALE = 1.5f;
     // 쓰다듬기 동작을 시트의 프레임 시간보다 몇 배 빠르게 재생할지
     private static final int PAT_SPEED = 3;
-    private static final String SPRITE_DIR = "character_motion/aaa/";
+    private static final String SPRITE_DIR = "character_motion/";
+    // 캐릭터가 돌아다니는 땅의 너비 (화면 너비의 몇 배)
+    private static final int GROUND_WIDTH_SCREENS = 3;
 
     private final Random random = new Random();
     private final List<WanderingCharacter> wanderingCharacters = new ArrayList<>();
@@ -51,10 +54,17 @@ public class MyActivity extends BaseActivity {
         setupBottomNav(R.id.myNavButton);
 
         characterArea = findViewById(R.id.characterArea);
+        // HorizontalScrollView는 자식의 layout_width를 무시하고 내용 크기로 재므로 최소 너비로 정한다
+        characterArea.setMinimumWidth(
+                getResources().getDisplayMetrics().widthPixels * GROUND_WIDTH_SCREENS);
+        // 처음에는 땅의 가운데를 보여 준다
+        HorizontalScrollView groundScroll = findViewById(R.id.groundScroll);
+        groundScroll.post(() -> groundScroll.scrollTo(
+                (characterArea.getWidth() - groundScroll.getWidth()) / 2, 0));
         addOwnedCharacters();
     }
 
-    /** assets/character_motion/aaa 에서 시트를 읽는다. 읽지 못하면 null */
+    /** assets/character_motion 에서 시트를 읽는다 (fileName은 "폴더/파일"). 읽지 못하면 null */
     private Bitmap loadSpriteSheet(String fileName) {
         Bitmap sheet = spriteSheets.get(fileName);
         if (sheet != null) return sheet;
@@ -90,6 +100,9 @@ public class MyActivity extends BaseActivity {
                     fixWidthToWidestFrame(textView, motion);
                 }
                 if (motion.hasSprites()) {
+                    ViewGroup.LayoutParams size = imageView.getLayoutParams();
+                    size.width = Math.round(size.width * motion.sizeScale);
+                    size.height = Math.round(size.height * motion.sizeScale);
                     imageView.setVisibility(View.VISIBLE);
                 }
                 characterArea.addView(view);

@@ -7,12 +7,23 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- 캐릭터가 돌아다니는 영역. 캐릭터는 MyActivity에서 획득한 수만큼 추가한다 -->
-    <FrameLayout
-        android:id="@+id/characterArea"
+    <!-- 땅이 화면보다 넓어서 좌우로 밀어서 본다 -->
+    <HorizontalScrollView
+        android:id="@+id/groundScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <!-- 캐릭터가 돌아다니는 땅. 너비는 MyActivity에서 화면 너비의 몇 배로 정한다.
+             배경의 지평선이 영역 절반쯤이라 캐릭터는 그 아래 풀밭에서만 다닌다.
+             캐릭터는 MyActivity에서 획득한 수만큼 추가한다 -->
+        <FrameLayout
+            android:id="@+id/characterArea"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_my_ground" />
+    </HorizontalScrollView>
 
     <!-- 하단 네비게이션 -->
     <include layout="@layout/bottom_nav"/>

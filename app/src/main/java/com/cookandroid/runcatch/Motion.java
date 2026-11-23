@@ -20,7 +20,7 @@ public class Motion {
 
     /** 한 동작의 스프라이트 시트. 같은 크기의 칸이 왼쪽 위부터 가로로 columns개씩 놓여 있다 */
     public static class Sprite {
-        // assets/character_motion/aaa 안의 시트 파일 이름
+        // assets/character_motion 안의 "폴더/파일" 이름
         public final String fileName;
         public final int frameWidth;
         public final int frameHeight;
@@ -73,7 +73,7 @@ public class Motion {
     public static final int MIN_REST_MOTION_DURATION_MS = 3000;
     public static final int MAX_REST_MOTION_DURATION_MS = 20000;
 
-    // 숫자: 속도(dp/초), 최소·최대 이동 거리(dp), 최소·최대 쉬는 시간(ms)
+    // 숫자: 속도(dp/초), 최소·최대 이동 거리(dp), 최소·최대 쉬는 시간(ms), (스프라이트 캐릭터만) 크기 배율
     private static final List<Motion> ALL = Collections.unmodifiableList(Arrays.asList(
             new Motion(1, 70f, 120f, 180f, 4000, 17500),     // 수달
             new Motion(2, 40f, 80f, 120f, 6000, 20000),     // 오리
@@ -90,8 +90,22 @@ public class Motion {
             new Motion(13, 100f, 160f, 220f, 1500, 10000),  // 강아지
             new Motion(14, 85f, 240f, 260f, 7500, 25000),   // 유니콘
             // TODO: 임시 캐릭터. 쉼3~5는 아직 없다
-            new Motion(15, 60f, 120f, 160f, 4500, 22500,
-                    Collections.<State, String[]>emptyMap(), createFireSprites())));
+            new Motion(15, 60f, 120f, 160f, 4500, 22500, 1f,
+                    Collections.<State, String[]>emptyMap(), createFireSprites()),
+            // TODO: 임시 캐릭터 2~4. 프레임 시간은 각 폴더의 json 값
+            new Motion(16, 40f, 100f, 140f, 6000, 25000, 1f,     // 낙타
+                    Collections.<State, String[]>emptyMap(), createSheetSprites("nakta",
+                            new int[]{70, 60, 100, 100, 70, 60, 70, 60, 100, 100, 70, 60},
+                            repeat(80, 12), repeat(75, 12),
+                            new int[]{120, 120, 180, 120, 130, 180, 130})),
+            new Motion(17, 100f, 160f, 220f, 3000, 15000, 1f,    // 제비
+                    Collections.<State, String[]>emptyMap(), createSheetSprites("jeavi",
+                            repeat(60, 12), repeat(60, 12), repeat(60, 12),
+                            new int[]{1100, 60, 350, 60, 1100, 60, 350})),
+            new Motion(18, 225f, 300f, 390f, 2000, 12000, 1f,    // 로드러너
+                    Collections.<State, String[]>emptyMap(), createSheetSprites("roadrunner",
+                            repeat(40, 12), repeat(40, 12), repeat(40, 12),
+                            new int[]{120, 120, 180, 120, 130, 180, 130}))));
 
     // 목록에 아직 없는 캐릭터가 쓰는 기본값
     private static final Motion DEFAULT = new Motion(-1, 60f, 120f, 160f, 4500, 22500);
@@ -104,6 +118,8 @@ public class Motion {
     // 한 번 이동한 뒤 다음 이동까지 쉬는 시간(ms)
     public final int minPauseMs;
     public final int maxPauseMs;
+    // 기본 크기(200dp)에 곱하는 캐릭터 크기 배율
+    public final float sizeScale;
     // 동작별 프레임. 비어 있으면 애니메이션 없이 캐릭터 이모지를 그대로 보여 준다
     private final Map<State, String[]> frames;
     // 동작별 스프라이트 시트. 있으면 글자 프레임 대신 이미지를 보여 준다
@@ -113,13 +129,13 @@ public class Motion {
                    float minMoveRadiusDp, float maxMoveRadiusDp,
                    int minPauseMs, int maxPauseMs) {
         this(characterId, moveSpeedDpPerSec, minMoveRadiusDp, maxMoveRadiusDp,
-                minPauseMs, maxPauseMs, Collections.<State, String[]>emptyMap(),
+                minPauseMs, maxPauseMs, 1f, Collections.<State, String[]>emptyMap(),
                 Collections.<State, Sprite>emptyMap());
     }
 
     private Motion(int characterId, float moveSpeedDpPerSec,
                    float minMoveRadiusDp, float maxMoveRadiusDp,
-                   int minPauseMs, int maxPauseMs,
+                   int minPauseMs, int maxPauseMs, float sizeScale,
                    Map<State, String[]> frames, Map<State, Sprite> sprites) {
         this.characterId = characterId;
         this.moveSpeedDpPerSec = moveSpeedDpPerSec;
@@ -127,6 +143,7 @@ public class Motion {
         this.maxMoveRadiusDp = maxMoveRadiusDp;
         this.minPauseMs = minPauseMs;
         this.maxPauseMs = maxPauseMs;
+        this.sizeScale = sizeScale;
         this.frames = frames;
         this.sprites = sprites;
     }
@@ -172,21 +189,45 @@ public class Motion {
     private static Map<State, Sprite> createFireSprites() {
         Map<State, Sprite> sprites = new EnumMap<>(State.class);
         // 정지: 한 장짜리 이미지를 한 칸 시트로 쓴다
-        sprites.put(State.IDLE, new Sprite("fire_idle.png", 1, 150, 150, 1000));
-        sprites.put(State.FRONT, new Sprite("fire_walk_front.png", 4, 150, 150,
+        sprites.put(State.IDLE, new Sprite("aaa/fire_idle.png", 1, 150, 150, 1000));
+        sprites.put(State.FRONT, new Sprite("aaa/fire_walk_front.png", 4, 150, 150,
                 70, 60, 100, 100, 70, 60, 70, 60, 100, 100, 70, 60));
         // 오른쪽으로 걷는 시트. 왼쪽으로 갈 때는 좌우반전해서 그린다
-        sprites.put(State.SIDE, new Sprite("fire_walk_side.png", 4, 150, 150,
+        sprites.put(State.SIDE, new Sprite("aaa/fire_walk_side.png", 4, 150, 150,
                 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75));
-        sprites.put(State.BACK, new Sprite("fire_walk_back.png", 4, 150, 150,
+        sprites.put(State.BACK, new Sprite("aaa/fire_walk_back.png", 4, 150, 150,
                 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75));
         // 쉼1: 고개 갸웃거리기, 쉼2: 잠자기
-        sprites.put(State.REST_1, new Sprite("fire_head_tilt.png", 4, 150, 150,
+        sprites.put(State.REST_1, new Sprite("aaa/fire_head_tilt.png", 4, 150, 150,
                 120, 120, 180, 120, 130, 180, 130));
-        sprites.put(State.REST_2, new Sprite("fire_sleep.png", 4, 150, 150,
+        sprites.put(State.REST_2, new Sprite("aaa/fire_sleep.png", 4, 150, 150,
                 230, 230, 230, 230, 230, 230, 230, 230));
-        sprites.put(State.PAT, new Sprite("fire_pat.png", 4, 150, 150,
+        sprites.put(State.PAT, new Sprite("aaa/fire_pat.png", 4, 150, 150,
                 130, 80, 80, 80, 80, 80, 180, 90, 80, 90, 90, 110));
         return sprites;
+    }
+
+    /**
+     * 받은 그대로의 파일 이름을 쓰는 시트 폴더 (모든 칸 150x150, 4열).
+     * 쓰다듬기 · 잠자기는 세 폴더 모두 프레임 시간이 같아서 여기 고정한다
+     */
+    private static Map<State, Sprite> createSheetSprites(String dir, int[] frontMs, int[] sideMs,
+                                                         int[] backMs, int[] headTiltMs) {
+        Map<State, Sprite> sprites = new EnumMap<>(State.class);
+        sprites.put(State.IDLE, new Sprite(dir + "/frontal.png", 1, 150, 150, 1000));
+        sprites.put(State.FRONT, new Sprite(dir + "/flare-walk-12.png", 4, 150, 150, frontMs));
+        sprites.put(State.SIDE, new Sprite(dir + "/walk-right-12.png", 4, 150, 150, sideMs));
+        sprites.put(State.BACK, new Sprite(dir + "/walk-back-12.png", 4, 150, 150, backMs));
+        sprites.put(State.REST_1, new Sprite(dir + "/head-tilt-stable-7.png", 4, 150, 150, headTiltMs));
+        sprites.put(State.REST_2, new Sprite(dir + "/sleep-8.png", 4, 150, 150, repeat(230, 8)));
+        sprites.put(State.PAT, new Sprite(dir + "/happy-pat-no-finger-12.png", 4, 150, 150,
+                130, 80, 80, 80, 80, 80, 180, 90, 80, 90, 90, 110));
+        return sprites;
+    }
+
+    private static int[] repeat(int durationMs, int count) {
+        int[] durations = new int[count];
+        Arrays.fill(durations, durationMs);
+        return durations;
     }
 }
