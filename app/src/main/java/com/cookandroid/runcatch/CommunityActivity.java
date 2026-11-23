@@ -197,6 +197,9 @@ public class CommunityActivity extends BaseActivity {
         dialog.setContentView(sheet);
         dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         dialog.getBehavior().setSkipCollapsed(true);
+        // 창을 끌어내리는 동작이 위아래 스와이프를 가로채서 이모지 목록이 스크롤되지 않음
+        // → 창 끌기를 끄고 목록이 스크롤을 받게 함 (창은 바깥을 누르거나 뒤로가기로 닫힘)
+        dialog.getBehavior().setDraggable(false);
         dialog.show();
     }
 
