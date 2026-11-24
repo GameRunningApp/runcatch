@@ -21,6 +21,7 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -40,12 +41,11 @@ public class CommunityActivity extends BaseActivity {
     // 에뮬레이터에서 PC의 로컬 백엔드에 접속하는 주소
     // [백엔드] 실제 서버 배포 시 서버 주소로 변경
     private static final String BASE_URL = "http://127.0.0.1:8000";
-
-    // 그룹에 가입되지 않은 테스트 계정
-//    private static final String TEST_USER_ID = "community_unjoined_test";
-    //그룹에 가입된 테스트 계정
     // [백엔드] 실제 로그인 사용자 ID로 변경
-    private static final String TEST_USER_ID = "community_joined_test";
+    // 그룹에 가입되지 않은 테스트 계정
+    private static final String TEST_USER_ID = "community_unjoined_test";
+    // 그룹에 가입된 테스트 계정
+//    private static final String TEST_USER_ID = "community_joined_test";
 
     private TextView[] tabs;
     private View[] sections;
@@ -76,7 +76,6 @@ public class CommunityActivity extends BaseActivity {
 
         bindGroup();
         setupTabs();
-        bindRaid();
 
         // 서버에서 실제 그룹 정보 조회
         requestGroupInfo();
@@ -112,7 +111,6 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 사용자 그룹 정보 조회
-    // [백엔드] 서버 API 응답 및 그룹 정보 스키마 변경 시 확인
     private void requestGroupInfo() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
@@ -209,6 +207,9 @@ public class CommunityActivity extends BaseActivity {
 
         bindFeed();
         bindLeague();
+
+        // 가입된 그룹의 레이드 정보 조회
+        requestRaidStatus();
     }
 
     // 가입되지 않은 상태 표시
@@ -240,7 +241,6 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 그룹 참여 API 호출
-    // [백엔드] 실제 로그인 사용자 ID 및 서버 API 연동 확인
     private void requestGroupJoin() {
         groupJoinActionButton.setEnabled(false);
         groupJoinActionButton.setText("참여 중...");
@@ -374,7 +374,6 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 그룹 피드 조회
-    // [백엔드] 서버 피드 응답 및 게시글 데이터 스키마 변경 시 확인
     private void requestFeed() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
@@ -590,7 +589,7 @@ public class CommunityActivity extends BaseActivity {
     private void bindReaction(TextView chip, String emoji, int baseCount,
                               boolean canReact, boolean removable) {
 
-        chip.setTag(emoji);   // 같은 이모지 칩을 찾을 때 사용
+        chip.setTag(emoji);
         chip.setText(emoji + " " + baseCount);
 
         if (!canReact) {
@@ -705,7 +704,6 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 월간 랭킹 조회
-    // [백엔드] 서버 랭킹 API 응답 스키마 변경 시 확인
     private void requestLeague() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
@@ -845,27 +843,146 @@ public class CommunityActivity extends BaseActivity {
 
     // ===== 레이드 =====
 
-    private void bindRaid() {
-        CommunityDummyData.Raid raid = CommunityDummyData.RAID;
+    // 서버에서 그룹 레이드 정보 조회
+    private void requestRaidStatus() {
+        networkExecutor.execute(() -> {
+            HttpURLConnection connection = null;
 
+            try {
+                URL url = new URL(
+                        BASE_URL + "/community-raids/" + TEST_USER_ID
+                );
+
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+
+                int responseCode = connection.getResponseCode();
+
+                InputStream inputStream;
+
+                if (responseCode >= 200 && responseCode < 300) {
+                    inputStream = connection.getInputStream();
+                } else {
+                    inputStream = connection.getErrorStream();
+                }
+
+                if (inputStream == null) {
+                    throw new IOException("레이드 응답을 받지 못했습니다.");
+                }
+
+                String response = readResponse(inputStream);
+
+                if (responseCode < 200 || responseCode >= 300) {
+                    throw new IOException(
+                            "레이드 조회 실패: HTTP " + responseCode
+                    );
+                }
+
+                JSONObject json = new JSONObject(response);
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    if (!json.optBoolean("is_joined", false)) {
+                        return;
+                    }
+
+                    renderRaid(json);
+
+                    if (json.optBoolean("just_completed", false)) {
+                        Toast.makeText(
+                                this,
+                                "레이드 달성! 그룹 전원에게 보상이 지급되었습니다.",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e("COMMUNITY_RAID", "레이드 정보 조회 실패", e);
+
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        Toast.makeText(
+                                this,
+                                "레이드 정보를 불러오지 못했습니다.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                });
+
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+        });
+    }
+
+    // 서버에서 받은 레이드 정보를 화면에 표시
+    private void renderRaid(JSONObject json) {
+        double targetKm =
+                json.optDouble("target_distance", 0) / 1000.0;
+
+        double currentKm =
+                json.optDouble("current_distance", 0) / 1000.0;
+
+        double myKm =
+                json.optDouble("my_distance", 0) / 1000.0;
+
+        double progressPercent =
+                json.optDouble("progress_percent", 0);
+
+        double remainKm = Math.max(targetKm - currentKm, 0);
+
+        boolean isCompleted =
+                json.optBoolean("is_completed", false);
+
+        int rewardExp =
+                json.optInt("reward_exp", 200);
+
+        // 그룹 누적 거리 / 목표 거리
         ((TextView) findViewById(R.id.raidProgressText))
-                .setText(String.format(Locale.US,
-                        "%,.0f / %,.0f km",
-                        raid.currentKm, raid.goalKm));
+                .setText(String.format(
+                        Locale.US,
+                        "%,.1f / %,.0f km",
+                        currentKm,
+                        targetKm
+                ));
 
-        ((ProgressBar) findViewById(R.id.raidProgress))
-                .setProgress(Math.round(
-                        raid.currentKm * 100 / raid.goalKm));
+        // 진행률
+        ProgressBar progressBar =
+                findViewById(R.id.raidProgress);
 
+        progressBar.setMax(100);
+        progressBar.setProgress(
+                (int) Math.max(
+                        0,
+                        Math.min(100, Math.round(progressPercent))
+                )
+        );
+
+        // 내 기여 거리
         ((TextView) findViewById(R.id.raidMyDistanceText))
-                .setText(String.format(Locale.US,
-                        "%.1f km", raid.myKm));
+                .setText(String.format(
+                        Locale.US,
+                        "%.1f km",
+                        myKm
+                ));
 
+        // 남은 거리
         ((TextView) findViewById(R.id.raidRemainText))
-                .setText(String.format(Locale.US,
-                        "%,.0f km",
-                        Math.max(raid.goalKm - raid.currentKm, 0)));
+                .setText(String.format(
+                        Locale.US,
+                        "%,.1f km",
+                        remainKm
+                ));
 
+        // 이번 달 마감까지 남은 날짜
         Calendar now = Calendar.getInstance();
 
         int dDay = now.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -873,6 +990,27 @@ public class CommunityActivity extends BaseActivity {
 
         ((TextView) findViewById(R.id.raidDdayText))
                 .setText("D-" + dDay);
+
+        // 레이드 보상 및 완료 상태
+        TextView rewardTitle =
+                findViewById(R.id.raidRewardTitleText);
+
+        TextView rewardDescription =
+                findViewById(R.id.raidRewardDescriptionText);
+
+        if (isCompleted) {
+            rewardTitle.setText("레이드 달성 완료!");
+
+            rewardDescription.setText(
+                    "그룹 전원 +" + rewardExp + " EXP 지급 완료"
+            );
+        } else {
+            rewardTitle.setText("🎁 레이드 성공 보상");
+
+            rewardDescription.setText(
+                    "목표 달성 시 그룹 전원 +" + rewardExp + " EXP"
+            );
+        }
     }
 
     @Override

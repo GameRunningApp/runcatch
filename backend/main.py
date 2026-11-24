@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from community_grouping_api import router as community_grouping_router
 from community_grouping import run_monthly_grouping
+from community_raid_api import router as community_raid_router
 
 # 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)
 DB_CONFIG = {
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(community_grouping_router)
+app.include_router(community_raid_router)
 
 def get_db():
     return pymysql.connect(**DB_CONFIG)

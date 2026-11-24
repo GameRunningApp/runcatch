@@ -15,10 +15,10 @@ def get_db_connection():
     """
 
     return pymysql.connect(
-        host="localhost",
+        host="localhost",              # [백엔드] 실제 서버 DB 호스트 주소로 변경
         port=3306,
-        user="runcatch",
-        password="runcatch1234",
+        user="runcatch",                # [백엔드] 실제 서버 DB 계정 확인
+        password="runcatch1234",        # [백엔드] 실제 서버 DB 비밀번호로 변경
         database="runcatch",
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,

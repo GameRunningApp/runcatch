@@ -556,6 +556,7 @@
                     android:padding="16dp">
 
                     <TextView
+                        android:id="@+id/raidRewardTitleText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎁 레이드 성공 보상"
@@ -564,10 +565,11 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/raidRewardDescriptionText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="그룹 전원 +200 EXP · 레이드 배지"
+                        android:text="목표 달성 시 그룹 전원 +200 EXP"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
