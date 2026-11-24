@@ -1,0 +1,19 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="AndroidLintAccessibilityPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintAdvertisingIdPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintAllFilesAccessPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintBackgroundLocationPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintExactAlarmPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintForegroundServicesPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintFullScreenIntentPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintHealthConnectPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintLoginCredentials" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintPackageVisibilityPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintPhotoAndVideoPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintRequestInstallPackagesPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintSmsAndCallLogPolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AndroidLintVpnServicePolicy" enabled="true" level="WARNING" enabled_by_default="true" />
+  </profile>
+</component>

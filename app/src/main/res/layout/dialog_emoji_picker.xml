@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 피드 반응 "+" 를 누르면 아래에서 올라오는 이모지 선택창 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/white"
+    android:orientation="vertical"
+    android:paddingTop="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginBottom="8dp"
+        android:text="반응 보낼 이모지를 골라주세요"
+        android:textColor="@color/text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <androidx.emoji2.emojipicker.EmojiPickerView
+        android:id="@+id/emojiPicker"
+        android:layout_width="match_parent"
+        android:layout_height="380dp"
+        app:emojiGridColumns="8" />
+
+</LinearLayout>

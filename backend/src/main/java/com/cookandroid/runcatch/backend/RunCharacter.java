@@ -52,6 +52,12 @@ public class RunCharacter {
                     "월간 리그 1위", "이번 달 리그 정상에 도전해보세요",
                     "리그 1위에게만 나타나는 전설의 러너"),
             new RunCharacter(15, "임시", "임시", CharacterCategory.DISTANCE,
+                    "임시", "임시", "임시"),
+            new RunCharacter(16, "🐫", "낙타", CharacterCategory.DISTANCE,
+                    "임시", "임시", "임시"),
+            new RunCharacter(17, "🐦", "제비", CharacterCategory.DISTANCE,
+                    "임시", "임시", "임시"),
+            new RunCharacter(18, "🐦", "로드러너", CharacterCategory.DISTANCE,
                     "임시", "임시", "임시")));
 
     public final int id;

@@ -137,6 +137,8 @@ with conn.cursor() as cur:
     cur.execute("SELECT version FROM schema_version")
     row = cur.fetchone()
     if row is None or row["version"] < SCHEMA_VERSION:
+        cur.execute("DROP TABLE IF EXISTS run_reaction")
+        cur.execute("DROP TABLE IF EXISTS run_cheer")
         cur.execute("DROP TABLE IF EXISTS user_character")
         cur.execute("DROP TABLE IF EXISTS `character`")
         cur.execute("DROP TABLE IF EXISTS running_record")
@@ -180,6 +182,29 @@ with conn.cursor() as cur:
             acquired_at  DATETIME     NOT NULL,
             PRIMARY KEY (user_id, character_id),
             FOREIGN KEY (character_id) REFERENCES `character` (character_id)
+        )
+    """)
+    # 커뮤니티 피드의 러닝 기록에 단 반응 (한 사람이 같은 이모지는 한 번만)
+    # 이모지는 휴대폰 전체 이모지라서 utf8mb4, 이모지끼리 구분되도록 _bin 정렬 규칙
+    # (기본 규칙에서는 서로 다른 이모지가 같은 값으로 취급될 수 있음)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS run_reaction (
+            running_number INT          NOT NULL,
+            user_id        VARCHAR(100) NOT NULL,
+            emoji          VARCHAR(32)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+            created_at     DATETIME     NOT NULL,
+            PRIMARY KEY (running_number, user_id, emoji),
+            FOREIGN KEY (running_number) REFERENCES running_record (running_number)
+        )
+    """)
+    # 응원하기 (한 사람이 한 기록에 한 번만)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS run_cheer (
+            running_number INT          NOT NULL,
+            user_id        VARCHAR(100) NOT NULL,
+            created_at     DATETIME     NOT NULL,
+            PRIMARY KEY (running_number, user_id),
+            FOREIGN KEY (running_number) REFERENCES running_record (running_number)
         )
     """)
     # 캐릭터 정보를 고치면 서버 재시작 때 반영되도록 UPDATE
@@ -245,6 +270,28 @@ class Stats(BaseModel):
 class DayDistance(BaseModel):
     day: date
     distance: float
+
+
+class ReactionCreate(BaseModel):
+    user_id: str  # 반응을 누른 사람
+    emoji: str = Field(min_length=1, max_length=32)
+
+
+class CheerCreate(BaseModel):
+    user_id: str  # 응원을 보낸 사람
+
+
+class ReactionCount(BaseModel):
+    emoji: str
+    count: int
+    mine: bool  # user_id가 이 이모지를 눌렀는지 (칩 하늘색 표시용)
+
+
+class RunReactions(BaseModel):
+    running_number: int
+    reactions: list[ReactionCount]
+    cheer_count: int
+    cheered_by_me: bool
 
 
 def get_total_distance(cur, user_id):
@@ -485,3 +532,101 @@ def set_main_character(user_id: str, character_id: int):
         result = next(c for c in get_owned_characters(cur, user_id) if c.is_main)
     conn.close()
     return result
+
+
+def check_run_exists(cur, running_number):
+    cur.execute(
+        "SELECT 1 FROM running_record WHERE running_number = %s", (running_number,)
+    )
+    if cur.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+def get_run_reactions(cur, running_number, user_id):
+    cur.execute(
+        "SELECT emoji, COUNT(*) AS count, SUM(user_id = %s) AS mine "
+        "FROM run_reaction WHERE running_number = %s "
+        "GROUP BY emoji ORDER BY MIN(created_at), emoji",
+        (user_id, running_number),
+    )
+    reactions = [
+        ReactionCount(emoji=row["emoji"], count=row["count"], mine=row["mine"] > 0)
+        for row in cur.fetchall()
+    ]
+    cur.execute(
+        "SELECT COUNT(*) AS count, COALESCE(SUM(user_id = %s), 0) AS mine "
+        "FROM run_cheer WHERE running_number = %s",
+        (user_id, running_number),
+    )
+    cheer = cur.fetchone()
+    return RunReactions(
+        running_number=running_number,
+        reactions=reactions,
+        cheer_count=cheer["count"],
+        cheered_by_me=cheer["mine"] > 0,
+    )
+
+
+@app.get("/runs/{running_number}/reactions", response_model=RunReactions)
+def read_run_reactions(running_number: int, user_id: str = ""):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            check_run_exists(cur, running_number)
+            return get_run_reactions(cur, running_number, user_id)
+    finally:
+        conn.close()
+
+
+@app.post("/runs/{running_number}/reactions", response_model=RunReactions)
+def add_run_reaction(running_number: int, reaction: ReactionCreate):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            check_run_exists(cur, running_number)
+            # 이미 누른 이모지면 그대로 둠 (두 번 눌러도 +1만)
+            cur.execute(
+                "INSERT IGNORE INTO run_reaction (running_number, user_id, emoji, created_at) "
+                "VALUES (%s, %s, %s, %s)",
+                (running_number, reaction.user_id, reaction.emoji,
+                 datetime.now().replace(microsecond=0)),
+            )
+            conn.commit()
+            return get_run_reactions(cur, running_number, reaction.user_id)
+    finally:
+        conn.close()
+
+
+@app.delete("/runs/{running_number}/reactions", response_model=RunReactions)
+def remove_run_reaction(running_number: int, user_id: str, emoji: str):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            check_run_exists(cur, running_number)
+            cur.execute(
+                "DELETE FROM run_reaction "
+                "WHERE running_number = %s AND user_id = %s AND emoji = %s",
+                (running_number, user_id, emoji),
+            )
+            conn.commit()
+            return get_run_reactions(cur, running_number, user_id)
+    finally:
+        conn.close()
+
+
+@app.post("/runs/{running_number}/cheer", response_model=RunReactions)
+def cheer_run(running_number: int, cheer: CheerCreate):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            check_run_exists(cur, running_number)
+            # 응원은 한 번만 (이미 했으면 그대로 둠)
+            cur.execute(
+                "INSERT IGNORE INTO run_cheer (running_number, user_id, created_at) "
+                "VALUES (%s, %s, %s)",
+                (running_number, cheer.user_id, datetime.now().replace(microsecond=0)),
+            )
+            conn.commit()
+            return get_run_reactions(cur, running_number, cheer.user_id)
+    finally:
+        conn.close()

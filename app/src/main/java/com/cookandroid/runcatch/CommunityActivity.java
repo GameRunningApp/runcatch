@@ -4,11 +4,18 @@ package com.cookandroid.runcatch;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.util.Log;
+
+import androidx.emoji2.emojipicker.EmojiPickerView;
+
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import org.json.JSONObject;
 import org.json.JSONArray;
@@ -20,6 +27,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+
 import java.util.Calendar;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -30,11 +38,13 @@ public class CommunityActivity extends BaseActivity {
     private static final String[] MEDALS = {"🥇", "🥈", "🥉"};
 
     // 에뮬레이터에서 PC의 로컬 백엔드에 접속하는 주소
+    // [백엔드] 실제 서버 배포 시 서버 주소로 변경
     private static final String BASE_URL = "http://127.0.0.1:8000";
 
     // 그룹에 가입되지 않은 테스트 계정
 //    private static final String TEST_USER_ID = "community_unjoined_test";
     //그룹에 가입된 테스트 계정
+    // [백엔드] 실제 로그인 사용자 ID로 변경
     private static final String TEST_USER_ID = "community_joined_test";
 
     private TextView[] tabs;
@@ -49,8 +59,6 @@ public class CommunityActivity extends BaseActivity {
     private View communityScroll;
     private LinearLayout groupJoinScreen;
     private TextView groupJoinActionButton;
-
-
 
     private final ExecutorService networkExecutor =
             Executors.newSingleThreadExecutor();
@@ -104,6 +112,7 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 사용자 그룹 정보 조회
+    // [백엔드] 서버 API 응답 및 그룹 정보 스키마 변경 시 확인
     private void requestGroupInfo() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
@@ -231,6 +240,7 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 그룹 참여 API 호출
+    // [백엔드] 실제 로그인 사용자 ID 및 서버 API 연동 확인
     private void requestGroupJoin() {
         groupJoinActionButton.setEnabled(false);
         groupJoinActionButton.setText("참여 중...");
@@ -364,6 +374,7 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 그룹 피드 조회
+    // [백엔드] 서버 피드 응답 및 게시글 데이터 스키마 변경 시 확인
     private void requestFeed() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
@@ -493,6 +504,19 @@ public class CommunityActivity extends BaseActivity {
             bindReaction(fire, "🔥", fireCount, !isMyPost);
             bindReaction(muscle, "💪", muscleCount, !isMyPost);
 
+            // "+" : 휴대폰 전체 이모지에서 골라 반응 보내기
+            HorizontalScrollView reactionScroll = item.findViewById(R.id.feedReactionScroll);
+            LinearLayout reactionRow = item.findViewById(R.id.feedReactionRow);
+            View addChip = item.findViewById(R.id.feedAddReactionChip);
+
+            // 내 게시글에는 반응을 추가할 수 없도록 제한
+            addChip.setVisibility(isMyPost ? View.GONE : View.VISIBLE);
+
+            if (!isMyPost) {
+                addChip.setOnClickListener(v -> showEmojiPicker(selectedEmoji ->
+                        sendCustomReaction(reactionScroll, reactionRow, addChip, selectedEmoji)));
+            }
+
             TextView cheer = item.findViewById(R.id.feedCheerButton);
             View avatar = item.findViewById(R.id.feedAvatarText);
 
@@ -556,7 +580,17 @@ public class CommunityActivity extends BaseActivity {
     // 반응 칩
     private void bindReaction(TextView chip, String emoji, int baseCount,
                               boolean canReact) {
+        bindReaction(chip, emoji, baseCount, canReact, false);
+    }
 
+    /**
+     * 반응 칩: 누르면 내 반응이 +1 되고 하늘색, 다시 누르면 취소.
+     * 누를 때 해당 이모지가 칩 위로 떠오르는 애니메이션이 나온다.
+     */
+    private void bindReaction(TextView chip, String emoji, int baseCount,
+                              boolean canReact, boolean removable) {
+
+        chip.setTag(emoji);   // 같은 이모지 칩을 찾을 때 사용
         chip.setText(emoji + " " + baseCount);
 
         if (!canReact) {
@@ -578,8 +612,77 @@ public class CommunityActivity extends BaseActivity {
                 CommunityEffects.reactionPop(this, chip, emoji);
             } else {
                 CommunityEffects.reactionCancel(chip);
+
+                // "+"로 내가 추가한 이모지라서 0개가 되면 칩을 없앰
+                if (removable && baseCount == 0) {
+                    chip.setOnClickListener(null);
+                    chip.postDelayed(() -> {
+                        ViewGroup parent = (ViewGroup) chip.getParent();
+                        if (parent != null) parent.removeView(chip);
+                    }, 250);
+                }
             }
         });
+    }
+
+    // ===== 이모지 선택창 ("+" 칩) =====
+
+    private interface OnEmojiChosen {
+        void onChosen(String emoji);
+    }
+
+    /** 아래에서 올라오는 창에 휴대폰 전체 이모지(EmojiPickerView)를 띄우고, 고르면 닫음 */
+    private void showEmojiPicker(OnEmojiChosen listener) {
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View sheet = LayoutInflater.from(this).inflate(R.layout.dialog_emoji_picker, null, false);
+        EmojiPickerView picker = sheet.findViewById(R.id.emojiPicker);
+        picker.setOnEmojiPickedListener(item -> {
+            dialog.dismiss();
+            listener.onChosen(item.getEmoji());
+        });
+        dialog.setContentView(sheet);
+        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
+        dialog.getBehavior().setSkipCollapsed(true);
+        dialog.show();
+    }
+
+    /**
+     * 고른 이모지로 반응 보내기.
+     * - 카드에 이미 있는 이모지 : 그 칩을 누른 것과 같음 (이미 눌렀으면 애니메이션만 다시)
+     * - 처음 보는 이모지 : "+" 앞에 새 칩을 만들고 1로 시작
+     * TODO(서버): 반응 저장 API가 생기면 여기서 이모지 문자열을 그대로 보내면 됨 (MySQL은 utf8mb4 필요)
+     */
+    private void sendCustomReaction(HorizontalScrollView scroll, LinearLayout row,
+                                    View addChip, String emoji) {
+        TextView chip = row.findViewWithTag(emoji);
+
+        if (chip == null) {
+            chip = new TextView(this, null, 0, R.style.ReactionChip);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(30));
+            lp.setMarginStart(dp(6));
+            row.addView(chip, row.indexOfChild(addChip), lp);
+
+            // 새로 추가한 이모지는 클릭 가능하며 취소하면 칩을 제거
+            bindReaction(chip, emoji, 0, true, true);
+        }
+
+        TextView target = chip;
+
+        // 새 칩이 화면에 자리를 잡은 뒤 눌러야 애니메이션 위치가 맞음
+        row.post(() -> {
+            scroll.scrollTo(Math.max(0, target.getRight() - scroll.getWidth() + dp(40)), 0);
+
+            if (target.isSelected()) {
+                CommunityEffects.reactionPop(this, target, emoji);
+            } else {
+                target.performClick();
+            }
+        });
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     // ===== 월간 리그 =====
@@ -602,6 +705,7 @@ public class CommunityActivity extends BaseActivity {
     }
 
     // 서버에서 월간 랭킹 조회
+    // [백엔드] 서버 랭킹 API 응답 스키마 변경 시 확인
     private void requestLeague() {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
