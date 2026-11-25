@@ -116,6 +116,14 @@ public class RunningActivity extends AppCompatActivity {
         org.maplibre.android.MapLibre.getInstance(this);
 
         super.onCreate(savedInstanceState);
+        // [추가] 러닝 화면이 잠금화면 위에 측정 화면으로 계속 보이게 합니다.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+        } else {
+            getWindow().addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            );
+        }
         setContentView(R.layout.activity_running);
 
         //뷰 설정
