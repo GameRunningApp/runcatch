@@ -98,6 +98,25 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
+                    <TextView
+                        android:id="@+id/groupJoinButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_category_chip"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingStart="14dp"
+                        android:paddingTop="8dp"
+                        android:paddingEnd="14dp"
+                        android:paddingBottom="8dp"
+                        android:text="그룹 참여하기"
+                        android:textColor="@color/primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+
                 </LinearLayout>
 
                 <TextView
@@ -537,6 +556,7 @@
                     android:padding="16dp">
 
                     <TextView
+                        android:id="@+id/raidRewardTitleText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎁 레이드 성공 보상"
@@ -545,10 +565,11 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/raidRewardDescriptionText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="그룹 전원 +200 EXP · 레이드 배지"
+                        android:text="목표 달성 시 그룹 전원 +200 EXP"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
@@ -558,7 +579,74 @@
 
         </LinearLayout>
 
+
     </ScrollView>
+
+    <!-- 그룹 미가입 사용자 전용 참여 화면 -->
+    <LinearLayout
+        android:id="@+id/groupJoinScreen"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🏃 🐥 🦦 🐿️"
+            android:textSize="38sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="함께 달려볼까요?"
+            android:textColor="@color/text_primary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:lineSpacingExtra="5dp"
+            android:text="나와 비슷한 러닝 페이스의 러너들과 그룹을 이루고 함께 성장해 보세요.\n이번 달 그룹에 참여하고 새로운 도전을 시작해 보세요!"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/groupJoinDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/bg_card"
+            android:gravity="center"
+            android:padding="18dp"
+            android:text="그룹에 참여하면 피드와 월간 리그를 이용할 수 있어요."
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/groupJoinActionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/bg_category_chip"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:padding="16dp"
+            android:text="그룹 참여하기"
+            android:textColor="@color/primary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
 
     <include
         android:id="@+id/bottomNavLayout"

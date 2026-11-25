@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Visual Studio
+.vs/
+**/.vs/
