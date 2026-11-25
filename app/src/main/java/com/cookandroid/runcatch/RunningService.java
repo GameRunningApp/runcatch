@@ -88,6 +88,8 @@ public class RunningService extends Service {
             channel.setDescription(
                     "러닝 상태 확인 및 일시정지 / 다시 시작"
             );
+            // [추가] 러닝 측정 알림을 잠금화면에 공개 표시합니다.
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
 
             getSystemService(NotificationManager.class)
                     .createNotificationChannel(channel);
@@ -488,28 +490,33 @@ public class RunningService extends Service {
                 "%.2f km",
                 meters / 1000f
         );
+        // [추가] 잠금화면 측정판에 표시할 누적 시간과 페이스를 현재 서비스 값으로 만듭니다.
+        String elapsedTime = formatTime(getElapsedMillis());
+        String pace = getPaceText();
 
         NotificationCompat.Builder builder =
                 new NotificationCompat.Builder(this, CHANNEL)
                         .setSmallIcon(R.drawable.ic_running_notification)
-                        .setContentTitle(
-                                paused
-                                        ? "Runcatch · 일시정지"
-                                        : "Runcatch · 러닝 중"
-                        )
+                        // [수정] 거리와 페이스를 주요 측정값으로 바로 표시합니다.
+                        .setContentTitle("거리 " + distance)
                         .setContentText(
-                                distance + " · "
-                                        + (error != null
-                                        ? error
-                                        : paused
-                                          ? "다시 시작을 눌러 이어 달리세요"
-                                          : "러닝 시간을 기록하고 있어요")
+                                (paused ? "일시정지" : "러닝 중")
+                                        + " · 페이스 " + pace
+                                        + (error != null ? " · " + error : "")
                         )
+                        // [추가] 알림을 펼치면 시간·거리·페이스를 한 화면에서 확인할 수 있습니다.
+                        .setStyle(new NotificationCompat.BigTextStyle()
+                                .bigText("시간 " + elapsedTime
+                                        + "\n거리 " + distance
+                                        + "\n페이스 " + pace
+                                        + (error != null ? "\n" + error : ""))
+                                .setSummaryText(paused ? "러닝 일시정지" : "러닝 측정 중"))
                         .setContentIntent(content)
                         .setOngoing(true)
                         .setOnlyAlertOnce(true)
                         .setCategory(NotificationCompat.CATEGORY_WORKOUT)
-                        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                        // [수정] 측정 내용이 잠금화면에서 가려지지 않도록 공개 표시합니다.
+                        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                         .setForegroundServiceBehavior(
                                 NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
                         );
@@ -524,7 +531,7 @@ public class RunningService extends Service {
         } else {
             builder
                     .setSubText(
-                            "기록 시간 " + formatTime(getElapsedMillis())
+                            "기록 시간 " + elapsedTime
                     )
                     .setShowWhen(false);
         }
