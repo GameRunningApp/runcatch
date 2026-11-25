@@ -46,6 +46,10 @@ public class MainActivity extends BaseActivity {
                     MainActivity.this, RunningActivity.class);
             startActivity(intent);
         });
+
+        // 러닝 기록 "더보기" → 기록 화면 (하단 메뉴의 기록 버튼을 누른 것과 똑같이 이동)
+        findViewById(R.id.moreRecordsButton).setOnClickListener(v ->
+                findViewById(R.id.recordNavButton).performClick());
     }
 
     @Override

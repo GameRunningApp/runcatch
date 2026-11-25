@@ -1,10 +1,15 @@
 
 package com.cookandroid.runcatch;
 
+import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -630,9 +635,16 @@ public class CommunityActivity extends BaseActivity {
         void onChosen(String emoji);
     }
 
-    /** 아래에서 올라오는 창에 휴대폰 전체 이모지(EmojiPickerView)를 띄우고, 고르면 닫음 */
+    /**
+     * 화면 아래쪽에 휴대폰 전체 이모지(EmojiPickerView) 창을 띄우고, 고르면 닫음.
+     *
+     * BottomSheetDialog는 창을 끌어내리는 동작이 이모지 목록의 위아래 스크롤을 가로채서
+     * 목록이 스크롤되지 않았음 → 끌기 기능이 없는 일반 Dialog를 화면 아래에 붙여서 사용.
+     * 창은 바깥 어두운 부분을 누르거나 뒤로가기로 닫힘.
+     */
     private void showEmojiPicker(OnEmojiChosen listener) {
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         View sheet = LayoutInflater.from(this).inflate(R.layout.dialog_emoji_picker, null, false);
         EmojiPickerView picker = sheet.findViewById(R.id.emojiPicker);
         picker.setOnEmojiPickedListener(item -> {
@@ -640,8 +652,14 @@ public class CommunityActivity extends BaseActivity {
             listener.onChosen(item.getEmoji());
         });
         dialog.setContentView(sheet);
-        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
-        dialog.getBehavior().setSkipCollapsed(true);
+        dialog.setCanceledOnTouchOutside(true);
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setGravity(Gravity.BOTTOM);
+        }
         dialog.show();
     }
 
