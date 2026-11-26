@@ -33,10 +33,20 @@ public class RecordActivity extends BaseActivity {
     private static final int MAX_BAR_HEIGHT_DP = 64;
     private static final int MIN_BAR_HEIGHT_DP = 4;
 
+    private static final float[] SAMPLE_DISTANCES = {
+            0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f};
+    private static final float[] SAMPLE_PACE_SECONDS = {
+            332f, 326f, 318f, 316f, 320f, 324f, 331f, 349f, 366f, 371f, 368f};
+
     // 임시 DB 테이블 표시에서 테이블당 최대 행 수 (gps_point는 행이 많아질 수 있음)
     private static final int MAX_DEBUG_ROWS = 300;
 
     private List<RunRecord> records;
+    private final float[][] chartSeries = new float[RunChartView.Metric.values().length][];
+    private TextView[] xAxisTabs;
+    private TextView[] yAxisTabs;
+    private RunChartView.Metric xMetric = RunChartView.Metric.DISTANCE;
+    private RunChartView.Metric yMetric = RunChartView.Metric.PACE;
     private boolean expanded = false;
 
     @Override
@@ -52,6 +62,7 @@ public class RecordActivity extends BaseActivity {
         String userId = RunCatchDbHelper.CURRENT_USER_ID;
 
         bindWeeklySummary(db.getRunsSince(userId, getWeekStartMillis()));
+        setupRunChart();
 
         records = db.getRunsSince(userId, 0);
         bindRecords();
@@ -153,6 +164,106 @@ public class RecordActivity extends BaseActivity {
 
             weekDayText.setText(WEEK_DAYS[i]);
             weekChart.addView(column);
+        }
+    }
+
+    private void setupRunChart() {
+        buildChartSeries(SAMPLE_DISTANCES, SAMPLE_PACE_SECONDS);
+
+        xAxisTabs = new TextView[]{
+                findViewById(R.id.xDistanceTab),
+                findViewById(R.id.xTimeTab),
+                findViewById(R.id.xPaceTab),
+                findViewById(R.id.xSpeedTab)
+        };
+        yAxisTabs = new TextView[]{
+                findViewById(R.id.yDistanceTab),
+                findViewById(R.id.yTimeTab),
+                findViewById(R.id.yPaceTab),
+                findViewById(R.id.ySpeedTab)
+        };
+
+        RunChartView.Metric[] metrics = RunChartView.Metric.values();
+        for (int i = 0; i < metrics.length; i++) {
+            RunChartView.Metric metric = metrics[i];
+            xAxisTabs[i].setOnClickListener(v ->
+                    selectAxes(metric, metric == yMetric ? xMetric : yMetric));
+            yAxisTabs[i].setOnClickListener(v ->
+                    selectAxes(metric == xMetric ? yMetric : xMetric, metric));
+        }
+
+        selectAxes(xMetric, yMetric);
+    }
+
+    private void buildChartSeries(float[] distances, float[] paceSeconds) {
+        int count = Math.min(distances.length, paceSeconds.length);
+        float[] distanceKm = new float[count];
+        float[] minutes = new float[count];
+        float[] paces = new float[count];
+        float[] speeds = new float[count];
+
+        float elapsedSeconds = 0;
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                elapsedSeconds += (distances[i] - distances[i - 1]) * paceSeconds[i];
+            }
+            distanceKm[i] = distances[i];
+            minutes[i] = elapsedSeconds / 60f;
+            paces[i] = paceSeconds[i];
+            speeds[i] = paceSeconds[i] > 0 ? 3600f / paceSeconds[i] : 0;
+        }
+
+        chartSeries[RunChartView.Metric.DISTANCE.ordinal()] = distanceKm;
+        chartSeries[RunChartView.Metric.TIME.ordinal()] = minutes;
+        chartSeries[RunChartView.Metric.PACE.ordinal()] = paces;
+        chartSeries[RunChartView.Metric.SPEED.ordinal()] = speeds;
+    }
+
+    private void selectAxes(RunChartView.Metric x, RunChartView.Metric y) {
+        xMetric = x;
+        yMetric = y;
+
+        for (int i = 0; i < xAxisTabs.length; i++) {
+            xAxisTabs[i].setSelected(i == x.ordinal());
+            yAxisTabs[i].setSelected(i == y.ordinal());
+        }
+
+        RunChartView runChart = findViewById(R.id.runChart);
+        TextView chartSummaryText = findViewById(R.id.chartSummaryText);
+        TextView chartDescriptionText = findViewById(R.id.chartDescriptionText);
+
+        runChart.setData(chartSeries[x.ordinal()], chartSeries[y.ordinal()], x, y);
+        chartSummaryText.setText(chartSummary(y));
+
+        String description = x.label + "에 따른 " + y.label + " 변화";
+        if (y == RunChartView.Metric.PACE) {
+            description += " · 위로 갈수록 빨라요";
+        }
+        chartDescriptionText.setText(description);
+    }
+
+    private String chartSummary(RunChartView.Metric metric) {
+        float[] distances = chartSeries[RunChartView.Metric.DISTANCE.ordinal()];
+        float[] minutes = chartSeries[RunChartView.Metric.TIME.ordinal()];
+        if (distances.length == 0) {
+            return "";
+        }
+
+        float totalKm = distances[distances.length - 1] - distances[0];
+        float totalSeconds = minutes[minutes.length - 1] * 60f;
+        float averagePace = totalKm > 0 ? totalSeconds / totalKm : 0;
+
+        switch (metric) {
+            case PACE:
+                int pace = Math.round(averagePace);
+                return String.format(Locale.US, "평균 %d'%02d\"/km", pace / 60, pace % 60);
+            case SPEED:
+                return String.format(Locale.US, "평균 %.1f km/h",
+                        averagePace > 0 ? 3600f / averagePace : 0);
+            case TIME:
+                return "총 " + formatDuration(Math.round(totalSeconds));
+            default:
+                return String.format(Locale.US, "총 %.1f Km", totalKm);
         }
     }
 
