@@ -1,7 +1,6 @@
 package com.cookandroid.runcatch.ui.record;
 
 import com.cookandroid.runcatch.R;
-import com.cookandroid.runcatch.RunChartView;
 import com.cookandroid.runcatch.core.Session;
 import com.cookandroid.runcatch.core.domain.RunRecord;
 import com.cookandroid.runcatch.core.domain.RunStreak;

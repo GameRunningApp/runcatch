@@ -283,7 +283,7 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
-                <com.cookandroid.runcatch.RunChartView
+                <com.cookandroid.runcatch.ui.record.RunChartView
                     android:id="@+id/runChart"
                     android:layout_width="match_parent"
                     android:layout_height="180dp"

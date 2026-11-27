@@ -1,4 +1,4 @@
-package com.cookandroid.runcatch;
+package com.cookandroid.runcatch.ui.record;
 
 import android.content.Context;
 import android.graphics.Canvas;
@@ -14,6 +14,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
+
+import com.cookandroid.runcatch.R;
 
 import java.util.Arrays;
 import java.util.Locale;
