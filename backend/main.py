@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional
 
 import pymysql
@@ -80,6 +80,11 @@ app.include_router(community_raid_router)
 
 def get_db():
     return pymysql.connect(**DB_CONFIG)
+
+
+def now_kst():
+    # 서버 컴퓨터 시간대와 상관없이 한국 시간 (DATETIME 컬럼에 넣으려고 tzinfo는 뺌)
+    return datetime.now(KST).replace(tzinfo=None, microsecond=0)
 
 
 # 앱 RunCharacter.ALL과 같은 목록. character_id는 앱의 RunCharacter.id
@@ -360,7 +365,7 @@ def unlock_characters(cur, user_id):
         (user_id,),
     )
     has_main = cur.fetchone() is not None
-    now = datetime.now().replace(microsecond=0)
+    now = now_kst()
     for row in rows:
         cur.execute(
             "INSERT INTO user_character (user_id, character_id, is_main, acquired_at) "
@@ -394,28 +399,30 @@ def home():
 
 @app.post("/runs", response_model=Run, status_code=201)
 def create_run(run: RunCreate):
-    run_date = run.run_date or int(datetime.now().timestamp() * 1000)
+    run_date = run.run_date or int(datetime.now(KST).timestamp() * 1000)
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO running_record (user_id, run_date, environment, distance, duration, "
-            "pace, avg_speed, max_speed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (
-                run.user_id,
-                run_date,
-                run.environment,
-                run.distance,
-                run.duration,
-                run.pace,
-                run.avg_speed,
-                run.max_speed,
-            ),
-        )
-        running_number = cur.lastrowid
-        add_exp_to_main(cur, run.user_id, run.distance)
-        new_characters = unlock_characters(cur, run.user_id)
-    conn.commit()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO running_record (user_id, run_date, environment, distance, duration, "
+                "pace, avg_speed, max_speed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    run.user_id,
+                    run_date,
+                    run.environment,
+                    run.distance,
+                    run.duration,
+                    run.pace,
+                    run.avg_speed,
+                    run.max_speed,
+                ),
+            )
+            running_number = cur.lastrowid
+            add_exp_to_main(cur, run.user_id, run.distance)
+            new_characters = unlock_characters(cur, run.user_id)
+        conn.commit()
+    finally:
+        conn.close()
     run_data = run.model_dump()
     run_data["run_date"] = run_date
     return Run(
@@ -428,39 +435,42 @@ def create_run(run: RunCreate):
 @app.get("/runs", response_model=list[Run])
 def get_runs(user_id: str):
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT * FROM running_record WHERE user_id = %s ORDER BY run_date DESC",
-            (user_id,),
-        )
-        rows = cur.fetchall()
-    conn.close()
-    return rows
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM running_record WHERE user_id = %s ORDER BY run_date DESC",
+                (user_id,),
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
 
 
 @app.get("/stats/{user_id}", response_model=Stats)
 def get_stats(user_id: str):
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) AS run_count, "
-            "COALESCE(SUM(distance), 0) AS total_distance, "
-            "COALESCE(SUM(duration), 0) AS total_duration "
-            "FROM running_record WHERE user_id = %s",
-            (user_id,),
-        )
-        row = cur.fetchone()
-        unlock_characters(cur, user_id)
-        conn.commit()
-        owned = get_owned_characters(cur, user_id)
-        main_character = next((c for c in owned if c.is_main), None)
-        cur.execute(
-            "SELECT * FROM `character` WHERE required_distance > %s "
-            "ORDER BY required_distance LIMIT 1",
-            (row["total_distance"],),
-        )
-        next_row = cur.fetchone()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS run_count, "
+                "COALESCE(SUM(distance), 0) AS total_distance, "
+                "COALESCE(SUM(duration), 0) AS total_duration "
+                "FROM running_record WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            unlock_characters(cur, user_id)
+            conn.commit()
+            owned = get_owned_characters(cur, user_id)
+            main_character = next((c for c in owned if c.is_main), None)
+            cur.execute(
+                "SELECT * FROM `character` WHERE required_distance > %s "
+                "ORDER BY required_distance LIMIT 1",
+                (row["total_distance"],),
+            )
+            next_row = cur.fetchone()
+    finally:
+        conn.close()
     return Stats(
         user_id=user_id,
         main_character=main_character,
@@ -471,23 +481,25 @@ def get_stats(user_id: str):
 
 @app.get("/stats/{user_id}/weekly", response_model=list[DayDistance])
 def get_weekly_stats(user_id: str):
-    today = date.today()
+    today = datetime.now(KST).date()
     week_ago = today - timedelta(days=6)
+    week_ago_ms = int(datetime.combine(week_ago, time.min, tzinfo=KST).timestamp() * 1000)
     conn = get_db()
-    week_ago_ms = int(datetime.combine(week_ago, datetime.min.time()).timestamp() * 1000)
-    # run_date(epoch ms)를 MySQL 세션 시간대 기준 날짜로 묶음
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DATE(FROM_UNIXTIME(run_date / 1000)) AS day, "
-            "SUM(distance) AS distance "
-            "FROM running_record "
-            "WHERE user_id = %s AND run_date >= %s "
-            "GROUP BY day",
-            (user_id, week_ago_ms),
-        )
-        rows = cur.fetchall()
-    conn.close()
-    by_day = {row["day"]: row["distance"] for row in rows}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_date, distance FROM running_record "
+                "WHERE user_id = %s AND run_date >= %s",
+                (user_id, week_ago_ms),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    # 날짜는 MySQL 시간대가 아니라 한국 시간 기준으로 묶음
+    by_day = {}
+    for row in rows:
+        day = datetime.fromtimestamp(row["run_date"] / 1000, KST).date()
+        by_day[day] = by_day.get(day, 0) + (row["distance"] or 0)
     result = []
     for i in range(7):
         day = week_ago + timedelta(days=i)
@@ -498,42 +510,44 @@ def get_weekly_stats(user_id: str):
 @app.get("/characters", response_model=list[Character])
 def get_characters():
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM `character` ORDER BY character_id")
-        rows = cur.fetchall()
-    conn.close()
-    return [Character(**row) for row in rows]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM `character` ORDER BY character_id")
+            return [Character(**row) for row in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 @app.get("/users/{user_id}/characters", response_model=list[OwnedCharacter])
 def get_user_characters(user_id: str):
     conn = get_db()
-    with conn.cursor() as cur:
-        owned = get_owned_characters(cur, user_id)
-    conn.close()
-    return owned
+    try:
+        with conn.cursor() as cur:
+            return get_owned_characters(cur, user_id)
+    finally:
+        conn.close()
 
 
 @app.put("/users/{user_id}/main-character/{character_id}", response_model=OwnedCharacter)
 def set_main_character(user_id: str, character_id: int):
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM user_character WHERE user_id = %s AND character_id = %s",
-            (user_id, character_id),
-        )
-        if cur.fetchone() is None:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Character not owned by user")
-        cur.execute("UPDATE user_character SET is_main = FALSE WHERE user_id = %s", (user_id,))
-        cur.execute(
-            "UPDATE user_character SET is_main = TRUE WHERE user_id = %s AND character_id = %s",
-            (user_id, character_id),
-        )
-        conn.commit()
-        result = next(c for c in get_owned_characters(cur, user_id) if c.is_main)
-    conn.close()
-    return result
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM user_character WHERE user_id = %s AND character_id = %s",
+                (user_id, character_id),
+            )
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Character not owned by user")
+            cur.execute("UPDATE user_character SET is_main = FALSE WHERE user_id = %s", (user_id,))
+            cur.execute(
+                "UPDATE user_character SET is_main = TRUE WHERE user_id = %s AND character_id = %s",
+                (user_id, character_id),
+            )
+            conn.commit()
+            return next(c for c in get_owned_characters(cur, user_id) if c.is_main)
+    finally:
+        conn.close()
 
 
 def check_run_exists(cur, running_number):
@@ -591,7 +605,7 @@ def add_run_reaction(running_number: int, reaction: ReactionCreate):
                 "INSERT IGNORE INTO run_reaction (running_number, user_id, emoji, created_at) "
                 "VALUES (%s, %s, %s, %s)",
                 (running_number, reaction.user_id, reaction.emoji,
-                 datetime.now().replace(microsecond=0)),
+                 now_kst()),
             )
             conn.commit()
             return get_run_reactions(cur, running_number, reaction.user_id)
@@ -626,7 +640,7 @@ def cheer_run(running_number: int, cheer: CheerCreate):
             cur.execute(
                 "INSERT IGNORE INTO run_cheer (running_number, user_id, created_at) "
                 "VALUES (%s, %s, %s)",
-                (running_number, cheer.user_id, datetime.now().replace(microsecond=0)),
+                (running_number, cheer.user_id, now_kst()),
             )
             conn.commit()
             return get_run_reactions(cur, running_number, cheer.user_id)
