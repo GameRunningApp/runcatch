@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py 맨 아래에서 import 시 바로 실행되던 테이블 생성 코드를 init_schema()로 옮김
+# main.py 맨 아래에서 import 시 바로 실행되던 테이블 생성 코드를 init_schema()로 옮김
 #   DB 연결 작업에서 `user` 테이블 추가
 """테이블 생성과 캐릭터 초기 데이터. 서버 시작 시(main.lifespan) 한 번 실행한다."""
 from characters import CHARACTERS

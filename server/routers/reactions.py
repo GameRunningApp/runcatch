@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 반응 · 응원 API를 옮겨 옴 (try/finally 대신 db_cursor)
+# main.py의 반응 · 응원 API를 옮겨 옴 (try/finally 대신 db_cursor)
 #   집계 함수 get_run_reactions()는 services/reactions.py로 옮김
 """커뮤니티 피드 러닝 기록의 반응(이모지)과 응원 API."""
 from fastapi import APIRouter, HTTPException

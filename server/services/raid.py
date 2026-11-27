@@ -1,4 +1,4 @@
-# [구조변경] 예전 위치: backend/community_raid.py. DB 연결은 db.get_db(), 시간대는 config.KST 사용
+# 예전 위치: backend/community_raid.py. DB 연결은 db.get_db(), 시간대는 config.KST 사용
 
 from datetime import date, datetime
 

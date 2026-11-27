@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 /characters, /users/{id}/characters, 대표 캐릭터 API를 옮겨 옴
+# 새 파일. main.py의 /characters, /users/{id}/characters, 대표 캐릭터 API를 옮겨 옴
 """캐릭터 목록, 보유 캐릭터, 대표 캐릭터 API."""
 from fastapi import APIRouter, HTTPException
 

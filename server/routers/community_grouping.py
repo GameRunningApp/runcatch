@@ -1,4 +1,3 @@
-# [구조변경] 예전 위치: backend/community_grouping_api.py
 #   DB 연결은 db.get_db(), 시간대는 config.KST 사용. 피드 반응 개수 0 고정을 실제 집계로 바꿈
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, HTTPException

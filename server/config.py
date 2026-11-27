@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 DB_CONFIG, community_grouping.py의 고정 DB 주소 · KST · 그룹 최대 인원,
+#  main.py의 DB_CONFIG, community_grouping.py의 고정 DB 주소 · KST · 그룹 최대 인원,
 #   main.py의 EXP_PER_LEVEL을 한곳에 모았음 (그룹 배정만 다른 DB에 붙던 문제 해결)
 """서버 설정값. 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)."""
 import os

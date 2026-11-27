@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 캐릭터 획득 판정(unlock_characters) · 경험치(add_exp_to_main)를 옮겨 옴
+# main.py의 캐릭터 획득 판정(unlock_characters) · 경험치(add_exp_to_main)를 옮겨 옴
 """캐릭터 조회, 획득 판정, 경험치 지급. 지급(unlock_characters, add_exp_to_main)은 POST /runs에서만 호출한다."""
 from characters import PLACE_CONDITIONS
 from config import EXP_PER_LEVEL, now_kst

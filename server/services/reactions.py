@@ -1,4 +1,4 @@
-# [구조변경] 새 파일 (DB 연결 작업). routers/reactions.py의 get_run_reactions()를 옮겨 옴 (피드와 같이 씀)
+# routers/reactions.py의 get_run_reactions()를 옮겨 옴 (피드와 같이 씀)
 """러닝 기록 1건의 반응(이모지) · 응원 집계. 반응 API와 커뮤니티 피드가 함께 쓴다."""
 from models import ReactionCount, RunReactions
 

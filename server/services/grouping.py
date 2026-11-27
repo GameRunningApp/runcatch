@@ -1,5 +1,5 @@
-# [구조변경] 예전 위치: backend/community_grouping.py
-#   DB 연결은 db.get_db(), 시간대 · 최대 인원은 config 사용
+# 예전 위치: backend/community_grouping.py
+#   DB 연결은 db.get_db(), 시간대, 최대 인원은 config 사용
 #   호출되지 않던 get_db_connection, calculate_user_features, create_distance_matrix 삭제
 #   파일 안에 있던 가상 사용자 테스트는 tests/grouping_algorithm_test.py로 옮김
 from datetime import date, datetime, time

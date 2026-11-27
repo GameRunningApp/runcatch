@@ -1,4 +1,4 @@
-# [구조변경] 새 파일 (DB 연결 작업). 여러 폰에서 같은 닉네임 · 이메일로 가입하지 못하게 하는 회원 등록 API
+# 여러 폰에서 같은 닉네임 · 이메일로 가입하지 못하게 하는 회원 등록 API
 """회원 등록 API. 닉네임(user_id) · 이메일이 서버 전체에서 겹치지 않게 한다."""
 import pymysql
 from fastapi import APIRouter, HTTPException

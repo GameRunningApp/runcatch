@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 /runs, /stats API를 옮겨 옴
+# main.py의 /runs, /stats API를 옮겨 옴
 #   GET /stats가 캐릭터를 지급하던 것을 없앰 (조회만. 지급은 POST /runs에서만)
 """러닝 기록과 통계 API."""
 from datetime import datetime, time, timedelta

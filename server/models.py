@@ -1,4 +1,4 @@
-# [구조변경] 새 파일. main.py의 Pydantic 요청/응답 모델을 옮겨 옴. 회원 등록용 UserCreate 추가
+# main.py의 Pydantic 요청/응답 모델을 옮겨 옴. 회원 등록용 UserCreate 추가
 """API 요청/응답 모델."""
 from datetime import date, datetime
 from typing import Literal, Optional
