@@ -1,10 +1,9 @@
 # [구조변경] 새 파일 (DB 연결 작업). 여러 폰에서 같은 닉네임 · 이메일로 가입하지 못하게 하는 회원 등록 API
 """회원 등록 API. 닉네임(user_id) · 이메일이 서버 전체에서 겹치지 않게 한다."""
-from datetime import datetime
-
 import pymysql
 from fastapi import APIRouter, HTTPException
 
+from config import now_kst
 from db import db_cursor
 from models import UserCreate
 
@@ -30,7 +29,7 @@ def create_user(user: UserCreate):
                 raise HTTPException(status_code=409, detail=MAIL_TAKEN)
             cur.execute(
                 "INSERT INTO `user` (user_id, mail, created_at) VALUES (%s, %s, %s)",
-                (user.user_id, user.mail, datetime.now().replace(microsecond=0)),
+                (user.user_id, user.mail, now_kst()),
             )
     except pymysql.err.IntegrityError as error:
         # 위 확인과 INSERT 사이에 다른 요청이 같은 값으로 먼저 가입한 경우 (키 이름으로 구분)

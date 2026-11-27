@@ -2,6 +2,7 @@
 #   main.py의 EXP_PER_LEVEL을 한곳에 모았음 (그룹 배정만 다른 DB에 붙던 문제 해결)
 """서버 설정값. 접속 정보는 환경 변수로 바꿀 수 있음 (없으면 로컬 MySQL 기본값)."""
 import os
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pymysql
@@ -19,6 +20,11 @@ DB_CONFIG = {
 
 # 날짜 계산 기준 시간대 (그룹 배정, 레이드)
 KST = ZoneInfo("Asia/Seoul")
+
+
+def now_kst():
+    # 서버 컴퓨터 시간대와 상관없이 한국 시간 (DATETIME 컬럼에 넣으려고 tzinfo는 뺌)
+    return datetime.now(KST).replace(tzinfo=None, microsecond=0)
 
 # 대표 캐릭터 경험치: 러닝 1m = 1, 이 값마다 레벨업 (러닝 · 레이드 보상 공통)
 EXP_PER_LEVEL = 5000

@@ -1,10 +1,9 @@
 # [구조변경] 새 파일. main.py의 반응 · 응원 API를 옮겨 옴 (try/finally 대신 db_cursor)
 #   집계 함수 get_run_reactions()는 services/reactions.py로 옮김
 """커뮤니티 피드 러닝 기록의 반응(이모지)과 응원 API."""
-from datetime import datetime
-
 from fastapi import APIRouter, HTTPException
 
+from config import now_kst
 from db import db_cursor
 from models import CheerCreate, ReactionCreate, RunReactions
 from services.reactions import get_run_reactions
@@ -36,7 +35,7 @@ def add_run_reaction(running_number: int, reaction: ReactionCreate):
             "INSERT IGNORE INTO run_reaction (running_number, user_id, emoji, created_at) "
             "VALUES (%s, %s, %s, %s)",
             (running_number, reaction.user_id, reaction.emoji,
-             datetime.now().replace(microsecond=0)),
+             now_kst()),
         )
         return get_run_reactions(cur, running_number, reaction.user_id)
 
@@ -61,6 +60,6 @@ def cheer_run(running_number: int, cheer: CheerCreate):
         cur.execute(
             "INSERT IGNORE INTO run_cheer (running_number, user_id, created_at) "
             "VALUES (%s, %s, %s)",
-            (running_number, cheer.user_id, datetime.now().replace(microsecond=0)),
+            (running_number, cheer.user_id, now_kst()),
         )
         return get_run_reactions(cur, running_number, cheer.user_id)

@@ -1,10 +1,11 @@
 # [구조변경] 새 파일. main.py의 /runs, /stats API를 옮겨 옴
 #   GET /stats가 캐릭터를 지급하던 것을 없앰 (조회만. 지급은 POST /runs에서만)
 """러닝 기록과 통계 API."""
-from datetime import date, datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter
 
+from config import KST
 from db import db_cursor
 from models import Character, DayDistance, Run, RunCreate, Stats
 from services.rewards import add_exp_to_main, get_owned_characters, unlock_characters
@@ -14,7 +15,7 @@ router = APIRouter()
 
 @router.post("/runs", response_model=Run, status_code=201)
 def create_run(run: RunCreate):
-    run_date = run.run_date or int(datetime.now().timestamp() * 1000)
+    run_date = run.run_date or int(datetime.now(KST).timestamp() * 1000)
     with db_cursor() as cur:
         cur.execute(
             "INSERT INTO running_record (user_id, run_date, environment, distance, duration, "
@@ -82,21 +83,21 @@ def get_stats(user_id: str):
 
 @router.get("/stats/{user_id}/weekly", response_model=list[DayDistance])
 def get_weekly_stats(user_id: str):
-    today = date.today()
+    today = datetime.now(KST).date()
     week_ago = today - timedelta(days=6)
-    week_ago_ms = int(datetime.combine(week_ago, datetime.min.time()).timestamp() * 1000)
-    # run_date(epoch ms)를 MySQL 세션 시간대 기준 날짜로 묶음
+    week_ago_ms = int(datetime.combine(week_ago, time.min, tzinfo=KST).timestamp() * 1000)
     with db_cursor() as cur:
         cur.execute(
-            "SELECT DATE(FROM_UNIXTIME(run_date / 1000)) AS day, "
-            "SUM(distance) AS distance "
-            "FROM running_record "
-            "WHERE user_id = %s AND run_date >= %s "
-            "GROUP BY day",
+            "SELECT run_date, distance FROM running_record "
+            "WHERE user_id = %s AND run_date >= %s",
             (user_id, week_ago_ms),
         )
         rows = cur.fetchall()
-    by_day = {row["day"]: row["distance"] for row in rows}
+    # 날짜는 MySQL 시간대가 아니라 한국 시간 기준으로 묶음
+    by_day = {}
+    for row in rows:
+        day = datetime.fromtimestamp(row["run_date"] / 1000, KST).date()
+        by_day[day] = by_day.get(day, 0) + (row["distance"] or 0)
     result = []
     for i in range(7):
         day = week_ago + timedelta(days=i)
