@@ -36,7 +36,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":backend"))
+    implementation(project(":core"))
     implementation(libs.activity.ktx)
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)

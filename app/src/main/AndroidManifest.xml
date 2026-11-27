@@ -22,7 +22,7 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.RunCatch">
         <activity
-            android:name=".LoginActivity"
+            android:name=".ui.auth.LoginActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
                 <intent-filter>
@@ -32,41 +32,41 @@
                 </intent-filter>
         </activity>
         <activity
-            android:name=".SignUpActivity"
+            android:name=".ui.auth.SignUpActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.home.MainActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".RunningActivity"
+            android:name=".ui.running.RunningActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".ResultActivity"
+            android:name=".ui.running.ResultActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".CollectionActivity"
+            android:name=".ui.collection.CollectionActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".MyActivity"
+            android:name=".ui.my.MyActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".RecordActivity"
+            android:name=".ui.record.RecordActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".CommunityActivity"
+            android:name=".ui.community.CommunityActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <activity android:name=".CharacterRewardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.running.CharacterRewardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
 
-        <service android:name=".RunningService" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false" />
+        <service android:name=".service.RunningService" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false" />
     </application>
 
 </manifest>

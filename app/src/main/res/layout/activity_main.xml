@@ -160,7 +160,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="14dp"
-                        android:text="0.0 / 0 Km"
+                        android:text="Lv.1 · 0 / 50 EXP"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 

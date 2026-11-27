@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RunCatch"
 include(":app")
-include(":backend")
+include(":core")
