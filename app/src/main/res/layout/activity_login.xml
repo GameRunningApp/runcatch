@@ -144,15 +144,31 @@
             android:textSize="14sp"
             android:textStyle="bold" />
 
+        <!-- 간편 로그인 : 카카오 디자인 가이드(노란 배경 #FEE500, 말풍선 심볼, 검정 85% 글자) -->
         <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/socialLoginButton"
+            android:id="@+id/kakaoLoginButton"
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="16dp"
-            android:background="@drawable/bg_sky_button"
+            android:background="@drawable/bg_kakao_button"
+            android:drawableStart="@drawable/ic_kakao_symbol"
+            android:paddingStart="20dp"
+            android:paddingEnd="44dp"
             android:stateListAnimator="@null"
-            android:text="간편 로그인"
-            android:textColor="@color/text_primary"
+            android:text="카카오 로그인"
+            android:textColor="#D9000000"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/googleLoginButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_google_button"
+            android:stateListAnimator="@null"
+            android:text="Google 계정으로 로그인"
+            android:textColor="#1F1F1F"
             android:textSize="14sp"
             android:textStyle="bold" />
 
