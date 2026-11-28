@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 카카오 로그인 버튼 배경 (카카오 디자인 가이드 컨테이너 색 #FEE500, 모서리 12dp) -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#1F000000">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FEE500" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>

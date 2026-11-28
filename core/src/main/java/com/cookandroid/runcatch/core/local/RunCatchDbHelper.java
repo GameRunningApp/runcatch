@@ -229,13 +229,31 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
      * @return 저장에 성공하면 true (이메일 · 닉네임 중복이면 false)
      */
     public boolean insertUser(String mail, String userId, String password) {
+        return insertUserRow(mail, userId, PasswordHash.hash(password));
+    }
+
+    /**
+     * 간편 로그인(카카오 · 구글)으로 처음 가입. 비밀번호가 없으므로 password는 NULL
+     * → 이메일 · 비밀번호 로그인은 되지 않음 (findUserId에서 PasswordHash.matches가 false)
+     *
+     * @return 저장에 성공하면 true (이메일 · 닉네임 중복이면 false)
+     */
+    public boolean insertSocialUser(String mail, String userId) {
+        return insertUserRow(mail, userId, null);
+    }
+
+    private boolean insertUserRow(String mail, String userId, String passwordHash) {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
             ContentValues user = new ContentValues();
             user.put("mail", mail);
             user.put("user_id", userId);
-            user.put("password", PasswordHash.hash(password));
+            if (passwordHash == null) {
+                user.putNull("password");
+            } else {
+                user.put("password", passwordHash);
+            }
             user.put("character_id", TEMP_CHARACTER_IDS[0]);
             db.insertOrThrow(TABLE_USER, null, user);
             insertTempCharacters(db, userId);
@@ -277,6 +295,29 @@ public class RunCatchDbHelper extends SQLiteOpenHelper {
             }
             return null;
         }
+    }
+
+    /**
+     * 이메일로 user_id 찾기 (간편 로그인 · 비밀번호 찾기)
+     *
+     * @return 가입된 이메일이면 user_id, 없으면 null
+     */
+    public String findUserIdByMail(String mail) {
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT user_id FROM " + TABLE_USER + " WHERE mail = ?", new String[]{mail})) {
+            return c.moveToFirst() ? c.getString(0) : null;
+        }
+    }
+
+    /**
+     * 비밀번호 변경 (비밀번호 찾기). 새 비밀번호도 해시로 저장한다.
+     *
+     * @return 그 이메일의 유저가 있어서 바뀌었으면 true
+     */
+    public boolean updatePassword(String mail, String newPassword) {
+        ContentValues values = new ContentValues();
+        values.put("password", PasswordHash.hash(newPassword));
+        return getWritableDatabase().update(TABLE_USER, values, "mail = ?", new String[]{mail}) > 0;
     }
 
     // ===== 조회 =====
