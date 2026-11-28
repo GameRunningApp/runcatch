@@ -139,7 +139,7 @@ API 테스트(Swagger) : http://127.0.0.1:8000/docs
 |---|---|---|---|
 | 조성민 | 팀장 · SM · 구조 | 앱 · 서버 구조 정리, 로컬 DB · 회원 DB 연결, 비밀번호 해시, MY 캐릭터 모션, PR 리뷰 · 병합 | [@jo-sungmin3675](https://github.com/jo-sungmin3675) |
 | 김시연 | 프론트엔드 · 계정 | 스톱워치, 캐릭터 획득 화면, 경험치 · 레벨, 커뮤니티 화면 · 응원 · 이모지 반응, 간편 로그인 · 비밀번호 찾기, 설문조사 · 회의록 | [@syeon-311](https://github.com/syeon-311) |
-| 윤현수 | GPS · 커뮤니티 서버 | GPS · 지도, 결과 화면, 환경 분석, 커뮤니티 그룹핑 · 참가 · 레이드, 설정 화면 | |
+| 윤현수 | GPS · 커뮤니티 서버 | GPS · 지도, 결과 화면, 환경 분석, 커뮤니티 그룹핑 · 참가 · 레이드, 설정 화면 | [@HealPlease133] (https://github.com/HealPlease133) |
 | 이천홍 | 러닝 측정 | 백그라운드 측정, 러닝 알림, 잠금화면 | [@leechuanhung](https://github.com/leechuanhung) |
 | 테물렌 | 프론트엔드 UI | 홈 · 로그인 · 회원가입 화면, 도감, 기록 화면 · 러닝 그래프 | [@temulnnn](https://github.com/temulnnn) |
 | 쿠르만벡 | 서버 | FastAPI 서버 구축, MySQL 전환, 장소 캐릭터 판정, 반응 · 응원 API, 서버 안정성 | [@Nishanovvv222](https://github.com/Nishanovvv222) |
